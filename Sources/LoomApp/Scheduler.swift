@@ -37,6 +37,34 @@ final class Scheduler {
     /// Called from the worker thread after each generated bar.
     var onSnapshot: ((EngineSnapshot) -> Void)?
     var onTransport: ((Bool) -> Void)?
+    /// Display-only lookahead: the next few bars' notes, provisional (only bar
+    /// `nextBar` is committed to MIDI). Recomputed on each bar and on edit.
+    var onLookahead: (([(bar: Int, notes: [NoteSummary])]) -> Void)?
+    private let lookaheadBars = 24
+    private let lookaheadFlag = NSLock()
+    private var lookaheadDirty = false
+
+    /// The UI marks the lookahead stale after a control edit; the worker loop
+    /// coalesces these (≤50 Hz) and regenerates once.
+    func markLookaheadDirty() {
+        lookaheadFlag.lock(); lookaheadDirty = true; lookaheadFlag.unlock()
+    }
+    private func takeLookaheadDirty() -> Bool {
+        lookaheadFlag.lock(); defer { lookaheadFlag.unlock() }
+        let d = lookaheadDirty; lookaheadDirty = false; return d
+    }
+    /// Generate the next `lookaheadBars` bars for display without disturbing the
+    /// live timeline (previewBars snapshots/restores the engine's sequential
+    /// state). Runs on the worker thread; only bar `nextBar` is ever scheduled.
+    private func emitLookahead() {
+        guard playing else { return }
+        lock.lock()
+        let start = nextBar
+        let preview = engine.previewBars(fromBar: start, count: lookaheadBars)
+        lock.unlock()
+        let tagged = preview.enumerated().map { (bar: start + $0.offset, notes: $0.element) }
+        onLookahead?(tagged)
+    }
 
     init(engine: Engine, midi: MIDIOut, monitor: ReferenceMonitor) {
         self.engine = engine
@@ -162,6 +190,8 @@ final class Scheduler {
             let lookahead = secondsToHost(0.35)
             if nextBarHost < now &+ lookahead {
                 generateAndSchedule()
+            } else if takeLookaheadDirty() {
+                emitLookahead()   // an edit landed — refresh the provisional future
             }
             Thread.sleep(forTimeInterval: 0.02)
         }
@@ -231,6 +261,8 @@ final class Scheduler {
         nextBarHost = barStart &+ secondsToHost(barDur)
         if nextBarHost > scheduledHorizon { scheduledHorizon = nextBarHost }
         onSnapshot?(output.snapshot)
+        _ = takeLookaheadDirty()   // this bar's commit already refreshes it
+        emitLookahead()
     }
 
     // MARK: external clock

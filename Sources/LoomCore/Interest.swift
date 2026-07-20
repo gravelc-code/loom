@@ -75,7 +75,7 @@ public final class InterestAnalyzer {
     /// How many consecutive bland bars before the watchdog forces an event.
     static let patience = 3
 
-    private struct BarRecord {
+    struct BarRecord {
         let pitchClasses: [Int]
         let onsets: Set<Int>          // 16th-grid positions, pitched + drums
         let velocities: [Int]
@@ -98,6 +98,25 @@ public final class InterestAnalyzer {
     public private(set) var lastApplied: Disruption?
 
     public init() {}
+
+    /// Full watchdog state, for the display lookahead's snapshot/restore. The
+    /// analyzer is sequential and can *force* a disruption on the next bar, so a
+    /// preview must restore it or real playback's disruption timing would drift.
+    struct State {
+        var history: [BarRecord]; var blandRun: Int; var barsSinceEvent: Int
+        var pending: Disruption?; var userRequested: Bool; var requestedKind: Disruption?
+        var metrics: InterestMetrics; var lastApplied: Disruption?
+    }
+    func captureState() -> State {
+        State(history: history, blandRun: blandRun, barsSinceEvent: barsSinceEvent,
+              pending: pending, userRequested: userRequested, requestedKind: requestedKind,
+              metrics: metrics, lastApplied: lastApplied)
+    }
+    func restore(_ s: State) {
+        history = s.history; blandRun = s.blandRun; barsSinceEvent = s.barsSinceEvent
+        pending = s.pending; userRequested = s.userRequested; requestedKind = s.requestedKind
+        metrics = s.metrics; lastApplied = s.lastApplied
+    }
 
     public func reset() {
         history.removeAll()

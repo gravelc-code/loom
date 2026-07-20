@@ -140,6 +140,51 @@ public final class Engine {
         interest.reset()
     }
 
+    /// A full copy of the engine's sequential state at the current bar — the
+    /// six items that `rewind()` resets. Everything else (harmony, conductor,
+    /// drone spans, modulation LFOs/walks) is a pure function of seed+bar and
+    /// needs no capture. Used to generate a display-only lookahead and then
+    /// restore, so real playback continues byte-identically.
+    struct SequentialSnapshot {
+        var smoothedActivity: Double
+        var lastSeenRegion: Int
+        var ringingTails: [(note: Int, end: Double, sustained: Bool)]
+        var motif: MotifMemory.State
+        var interest: InterestAnalyzer.State
+        var field: Field.State
+    }
+    func captureSequentialState() -> SequentialSnapshot {
+        SequentialSnapshot(
+            smoothedActivity: smoothedActivity, lastSeenRegion: lastSeenRegion,
+            ringingTails: ringingTails, motif: motifMemory.captureState(),
+            interest: interest.captureState(), field: modulation.field.captureState())
+    }
+    func restore(_ s: SequentialSnapshot) {
+        smoothedActivity = s.smoothedActivity
+        lastSeenRegion = s.lastSeenRegion
+        ringingTails = s.ringingTails
+        motifMemory.restore(s.motif)
+        interest.restore(s.interest)
+        modulation.field.restore(s.field)
+    }
+
+    /// Generate `count` bars starting at `fromBar` for DISPLAY ONLY, without
+    /// disturbing the live timeline. Bars are produced in order (the field and
+    /// activity follower feed `effectiveParams`, so you cannot skip ahead),
+    /// then the sequential state is restored. Deterministic: with unchanged
+    /// controls these are exactly the notes real playback will later generate.
+    public func previewBars(fromBar: Int, count: Int) -> [[NoteSummary]] {
+        guard count > 0 else { return [] }
+        let saved = captureSequentialState()
+        var out: [[NoteSummary]] = []
+        out.reserveCapacity(count)
+        for b in fromBar..<(fromBar + count) {
+            out.append(generateBar(b).snapshot.notes)
+        }
+        restore(saved)
+        return out
+    }
+
     /// Start over with a new master seed: new progression, new modulation
     /// character, new sub-seeds. Keeps user params and evolution controls.
     public func reseed(_ seed: UInt64) {

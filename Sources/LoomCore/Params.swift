@@ -38,9 +38,12 @@ public enum Defaults {
         case .drums:
             return ParamSet(voice: .drums, defaults: [
                 "amount": 0.5,
-                "density": 0.48, "swing": 0.18, "ghost": 0.32, "ratchet": 0.18,
+                // Three density lanes: `density` = hats, `punch` = the big
+                // drums (kick/snare/clap decoration), `perc` = percs/effects.
+                "density": 0.68, "punch": 0.72, "perc": 0.5,
+                "swing": 0.18, "ghost": 0.32, "ratchet": 0.18,
                 "fills": 0.58, "poly": 0.2, "recur": 0.55, "dynamics": 0.68,
-                "humanize": 0.4,
+                "humanize": 0.4, "kit": 0.5,
             ])
         case .bass:
             return ParamSet(voice: .bass, defaults: [
@@ -76,7 +79,7 @@ public enum Defaults {
     /// Display order for the UI (dictionary order is meaningless).
     public static func order(for voice: Voice) -> [String] {
         switch voice {
-        case .drums:  return ["amount", "density", "swing", "ghost", "ratchet", "fills", "poly", "recur", "dynamics", "humanize"]
+        case .drums:  return ["amount", "punch", "density", "perc", "swing", "ghost", "ratchet", "fills", "poly", "recur", "dynamics", "humanize", "kit"]
         case .bass:   return ["amount", "density", "octave", "follow", "approach", "accent", "glide", "recur"]
         case .chords: return ["amount", "register", "spread", "humanize"]
         case .melody: return ["amount", "density", "rest", "register", "length",

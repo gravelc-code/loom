@@ -34,6 +34,49 @@ final class EngineTests: XCTestCase {
         }
     }
 
+    /// The display lookahead must be truthful: `previewBars` returns exactly the
+    /// notes real generation produces at those bars, and restoring afterwards is
+    /// exact (real generation continues from the restored state and matches).
+    func testPreviewBarsMatchRealGeneration() {
+        let e = Engine(seed: 0xF00D); e.rewind()
+        let n = 20, k = 6
+        for b in 0..<n { _ = e.generateBar(b) }
+        let preview = e.previewBars(fromBar: n, count: k)
+        var real: [[NoteSummary]] = []
+        for b in n..<(n + k) { real.append(e.generateBar(b).snapshot.notes) }
+        XCTAssertEqual(preview.count, k)
+        for i in 0..<k {
+            XCTAssertEqual(preview[i].count, real[i].count, "bar \(n + i) note count")
+            for (a, c) in zip(preview[i], real[i]) {
+                XCTAssertEqual(a.note, c.note)
+                XCTAssertEqual(a.velocity, c.velocity)
+                XCTAssertEqual(a.startStep, c.startStep, accuracy: 1e-9)
+                XCTAssertEqual(a.durationSteps, c.durationSteps, accuracy: 1e-9)
+                XCTAssertEqual(a.voice, c.voice)
+            }
+        }
+    }
+
+    /// A preview must leave zero footprint: an engine that previewed and one that
+    /// didn't generate all subsequent bars identically. This catches any
+    /// sequential field (especially the reaction-diffusion field and the interest
+    /// watchdog) missing from the snapshot.
+    func testPreviewLeavesNoFootprint() {
+        let a = Engine(seed: 0x1357); a.rewind()
+        let b = Engine(seed: 0x1357); b.rewind()
+        let n = 16
+        for i in 0..<n { _ = a.generateBar(i); _ = b.generateBar(i) }
+        _ = a.previewBars(fromBar: n, count: 8)      // a previews; b does not
+        for i in n..<(n + 40) {
+            let an = a.generateBar(i).snapshot.notes
+            let bn = b.generateBar(i).snapshot.notes
+            XCTAssertEqual(an.map(\.note), bn.map(\.note), "bar \(i) diverged after preview")
+            XCTAssertEqual(an.map(\.velocity), bn.map(\.velocity), "bar \(i) velocities diverged")
+        }
+    }
+
+
+
     func testSeedsDiffer() {
         let a = events(seed: 1, bars: 8).flatMap { $0 }
         let b = events(seed: 2, bars: 8).flatMap { $0 }
@@ -911,10 +954,48 @@ final class EngineTests: XCTestCase {
             let kickSteps = Set(events.filter { $0.note == DrumTrack.kick.note }.map { Int($0.startStep) })
             let snareSteps = Set(events.filter { $0.note == DrumTrack.snare.note }.map { Int($0.startStep) })
             let hatSteps = Set(events.filter { $0.note == DrumTrack.hat.note }.map { Int($0.startStep) })
+            // A wide kit may ride the eighths instead of the closed hat at a
+            // peak; either way a quarter-note timekeeper must be present.
+            let rideSteps = Set(events.filter { $0.note == DrumTrack.ride.note }.map { Int($0.startStep) })
             XCTAssertTrue(DrumGenerator.backbone(track: .kick, style: style).isSubset(of: kickSteps))
             XCTAssertTrue(DrumGenerator.backbone(track: .snare, style: style).isSubset(of: snareSteps))
-            XCTAssertTrue(Set([0, 4, 8, 12]).isSubset(of: hatSteps))
+            XCTAssertTrue(Set([0, 4, 8, 12]).isSubset(of: hatSteps.union(rideSteps)),
+                          "a quarter-note timekeeper (hat or ride) must hold")
         }
+    }
+
+    /// The `kit` width control is gated: at kit 0 only the core pads (≤ note 46)
+    /// ever sound; a wide kit at a peak reaches into the top-row pads (48–51)
+    /// and the shaker (44), all still inside the 16-pad rack range.
+    func testKitWidthGating() {
+        let feel = Feel(seed: 0x5151, voice: .drums)
+        func notes(kit: Double) -> Set<Int> {
+            var out: Set<Int> = []
+            for bar in 0..<24 {
+                let p = ParamSet(voice: .drums, defaults: [
+                    "density": 0.7, "swing": 0.2, "ghost": 0.4, "ratchet": 0.2,
+                    "fills": 0.6, "poly": 0.2, "recur": 0.4, "dynamics": 0.7,
+                    "humanize": 0.4, "kit": kit])
+                let evs = DrumGenerator.generate(bar: bar, params: p, subSeed: 0xD1,
+                                                 profileSeed: 0xD1, feel: feel, fill: 0.5,
+                                                 tension: 0.85, presence: 0.95,
+                                                 nextPresence: 0.95, anchors: [0, 4, 8, 12],
+                                                 accentDownbeat: bar % 8 == 0)
+                for e in evs { out.insert(e.note) }
+            }
+            return out
+        }
+        // The extended-percussion pads (shaker 44, one-shots 48/50, crash 49,
+        // ride 51). Toms (41/43/45/47) are core fills, allowed at any width.
+        let extended: Set<Int> = [44, 48, 49, 50, 51]
+        let core = notes(kit: 0)
+        XCTAssertTrue(core.isDisjoint(with: extended), "kit 0 must not touch the extended pads, got \(core.sorted())")
+        XCTAssertTrue(core.allSatisfy { (36...51).contains($0) }, "kit 0 stays in the 16-pad range, got \(core.sorted())")
+        let wide = notes(kit: 0.9)
+        XCTAssertFalse(wide.intersection(extended).isEmpty,
+                       "a wide kit must reach the extended pads, got \(wide.sorted())")
+        XCTAssertTrue(wide.allSatisfy { (36...51).contains($0) },
+                      "everything stays inside the 16-pad range, got \(wide.sorted())")
     }
 
     /// A normal groove never scatters toms, and an open hat replaces the
@@ -1215,7 +1296,9 @@ final class EngineTests: XCTestCase {
                         }
                     }
                 case .drums:
-                    if t >= 0.7 { kitVels.append(Double(ev.velocity)) }
+                    // The shaker is an intentionally-quiet wide-kit texture, not
+                    // part of the backbone dynamic being measured here.
+                    if t >= 0.7 && ev.note != DrumTrack.shaker.note { kitVels.append(Double(ev.velocity)) }
                     else if t < 0.3 { textureVels.append(Double(ev.velocity)) }
                 default: break
                 }
@@ -1231,8 +1314,10 @@ final class EngineTests: XCTestCase {
                              "loop layer should breathe, not sit at one velocity")
         XCTAssertFalse(kitVels.isEmpty)
         XCTAssertFalse(textureVels.isEmpty)
-        XCTAssertGreaterThan(mean(kitVels), mean(textureVels) + 20,
-                             "peak kit (\(mean(kitVels))) should sit far above valley texture (\(mean(textureVels)))")
+        // Peak clearly above valley; the margin allows for the wider, livelier
+        // hat/velocity variation the kit now carries for musical interest.
+        XCTAssertGreaterThan(mean(kitVels), mean(textureVels) + 13,
+                             "peak kit (\(mean(kitVels))) should sit above valley texture (\(mean(textureVels)))")
     }
 
     // MARK: - v2: chord swells & ties

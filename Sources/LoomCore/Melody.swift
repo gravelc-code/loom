@@ -115,6 +115,23 @@ public final class MotifMemory {
         if recallLog.count > 64 { recallLog.removeFirst() }
     }
 
+    /// Full motif state, for the display lookahead's snapshot/restore.
+    struct State {
+        var cells: [MotifCell]
+        var recallLog: [(bar: Int, cellID: Int?, transform: MotifTransform?)]
+        var openings: [Int: Int]
+        var phraseThemes: [Int: [Int: MotifCell]]
+        var nextID: Int
+    }
+    func captureState() -> State {
+        State(cells: cells, recallLog: recallLog, openings: openings,
+              phraseThemes: phraseThemes, nextID: nextID)
+    }
+    func restore(_ s: State) {
+        cells = s.cells; recallLog = s.recallLog; openings = s.openings
+        phraseThemes = s.phraseThemes; nextID = s.nextID
+    }
+
     public func reset() {
         cells.removeAll()
         recallLog.removeAll()

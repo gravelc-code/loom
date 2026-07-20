@@ -52,8 +52,14 @@ final class AppModel: ObservableObject {
     /// between them so the simulation visibly crawls instead of snapping
     /// once per bar.
     let field = FieldModel()
-    /// Rolling weave window: the last 8 generated bars' notes + tension.
+    /// Rolling weave window: recent generated bars' notes + tension. Kept deep
+    /// enough that the piano roll can be scrolled back through the piece.
     @Published var roll: [(bar: Int, tension: Double, notes: [NoteSummary])] = []
+    /// How many generated bars of history the roll retains.
+    static let rollHistory = 64
+    /// Provisional upcoming bars shown ahead of the playhead. Display-only:
+    /// only the next bar is committed to MIDI, so these reshape as you edit.
+    @Published var lookahead: [(bar: Int, notes: [NoteSummary])] = []
     /// Bumped whenever the roll restarts (rewind/reseed) so cached weave
     /// geometry for old bar numbers is discarded.
     var rollGeneration = 0
@@ -138,7 +144,11 @@ final class AppModel: ObservableObject {
             DispatchQueue.main.async {
                 self?.playing = running
                 if running { self?.statusMessage = "" }
+                else { self?.lookahead = [] }   // no provisional future when stopped
             }
+        }
+        scheduler.onLookahead = { [weak self] la in
+            DispatchQueue.main.async { self?.lookahead = la }
         }
 
         // Preview snapshot so harmony/field/arc panels aren't blank before
@@ -157,6 +167,7 @@ final class AppModel: ObservableObject {
 
     private func push(_ body: @escaping (Engine) -> Void) {
         scheduler.withEngine(body)
+        scheduler.markLookaheadDirty()   // an edit changes the upcoming bars
     }
 
     private func tick() {
@@ -180,7 +191,7 @@ final class AppModel: ObservableObject {
             rollGeneration += 1
         }
         roll.append((snap.bar, snap.tension, snap.notes))
-        if roll.count > 8 { roll.removeFirst(roll.count - 8) }
+        if roll.count > Self.rollHistory { roll.removeFirst(roll.count - Self.rollHistory) }
         advanceMorph(at: snap.bar)
     }
 

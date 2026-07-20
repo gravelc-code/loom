@@ -15,12 +15,15 @@ struct ContentView: View {
     var body: some View {
         VStack(spacing: 8) {
             header.frame(height: 44)
-            performanceRack.frame(height: 226)
+            performanceRack.frame(maxHeight: .infinity)   // orbit + roll take the slack
             voiceRack.frame(height: 88)
-            workbench.frame(maxHeight: .infinity)
+            // Inspector takes its natural height (varies by voice) so there's no
+            // dead space; the roll above grows to fill whatever's left.
+            workbench.fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity)
         }
         .padding(10)
-        .frame(width: 1180, height: 720, alignment: .top)
+        .frame(width: 1180, height: 820, alignment: .top)
         .background(Theme.surface)
         .coordinateSpace(name: tipSpace)
         .overlay {
@@ -288,7 +291,7 @@ struct ContentView: View {
                     RollLegend(selected: $selectedVoice).frame(height: 20)
                     PerformancePianoRoll(model: model, playhead: model.playhead,
                                          selected: selectedVoice)
-                        .frame(height: 100)
+                        .frame(maxHeight: .infinity)
                     HStack(spacing: 7) {
                         Text("motif").font(Theme.monoSmall).foregroundColor(Theme.dim)
                         MotifStrip(snapshot: model.snapshot)
@@ -358,9 +361,6 @@ struct ContentView: View {
                 ForEach(specs) { InspectorParamControl(model: model, spec: $0) }
             }
             Spacer(minLength: 0)
-            ContextHelpBar()
-                .padding(.horizontal, 7).padding(.vertical, 5)
-                .background(RoundedRectangle(cornerRadius: 6).fill(Theme.well.opacity(0.55)))
         }
         .padding(10)
     }

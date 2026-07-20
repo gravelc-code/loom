@@ -19,13 +19,19 @@ final class ReferenceMonitor {
     init() {
         let bank = URL(fileURLWithPath:
             "/System/Library/Components/CoreAudio.component/Contents/Resources/gs_instruments.dls")
+        // Sustained General MIDI voices — pads, strings and a bowed lead — so
+        // the reference sings and blooms into the reverb instead of plinking.
         let programs: [Voice: UInt8] = [
-            .drone: 99, .drums: 0, .bass: 39, .chords: 95, .melody: 84,
-            .pulse: 11,
+            .drone: 89,   // Pad 2 (warm) — the held foundation
+            .drums: 0,    // GM kit (percussion bank)
+            .bass: 39,    // Synth Bass 2 — kept defined under the wash
+            .chords: 48,  // String Ensemble 1 — lush sustained bed
+            .melody: 92,  // Pad 5 (bowed) — slow, singing, pad-like
+            .pulse: 90,   // Pad 3 (polysynth) — sustained with a little attack
         ]
         let levels: [Voice: Float] = [
-            .drone: 0.30, .drums: 0.44, .bass: 0.36, .chords: 0.28, .melody: 0.22,
-            .pulse: 0.20,
+            .drone: 0.52, .drums: 0.50, .bass: 0.46, .chords: 0.52, .melody: 0.44,
+            .pulse: 0.36,
         ]
         engine.attach(tonalMixer)
         engine.attach(darkEQ)
@@ -35,8 +41,8 @@ final class ReferenceMonitor {
         lowPass.frequency = 5_800
         lowPass.bandwidth = 0.8
         lowPass.bypass = false
-        reverb.loadFactoryPreset(.largeHall)
-        reverb.wetDryMix = 28
+        reverb.loadFactoryPreset(.cathedral)
+        reverb.wetDryMix = 52
         for voice in Voice.allCases {
             let sampler = AVAudioUnitSampler()
             engine.attach(sampler)
@@ -58,7 +64,7 @@ final class ReferenceMonitor {
         engine.connect(tonalMixer, to: darkEQ, format: nil)
         engine.connect(darkEQ, to: reverb, format: nil)
         engine.connect(reverb, to: engine.mainMixerNode, format: nil)
-        engine.mainMixerNode.outputVolume = 0.65
+        engine.mainMixerNode.outputVolume = 0.85
         engine.prepare()
     }
 
@@ -79,7 +85,12 @@ final class ReferenceMonitor {
             guard let self, self.enabled, let sampler = self.samplers[event.voice] else { return }
             sampler.startNote(UInt8(clamping: event.note),
                               withVelocity: UInt8(clamping: event.velocity), onChannel: 0)
-            self.queue.asyncAfter(deadline: .now() + max(0.03, duration)) { [weak self] in
+            // Hold the tonal voices past their nominal length so the pads
+            // sustain and ring into the reverb; keep the kit tight.
+            let hold = event.voice == .drums
+                ? max(0.03, duration)
+                : max(0.6, duration * 1.35 + 0.4)
+            self.queue.asyncAfter(deadline: .now() + hold) { [weak self] in
                 self?.samplers[event.voice]?.stopNote(UInt8(clamping: event.note), onChannel: 0)
             }
         }

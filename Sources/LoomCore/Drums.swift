@@ -106,8 +106,9 @@ public struct DrumGenerator {
             if style == .halftime { put(6, 0.38); put(14, 0.48) }
             else { put(6, 0.30); put(14, 0.44) }
 
-        case .perc, .glitch:
-            // These map to GM low/floor toms and are reserved for fills.
+        default:
+            // Toms are reserved for fills; extended-kit tracks are placed by
+            // `extendedPercussion`. No authored per-step profile here.
             break
         }
         return weights
@@ -142,13 +143,17 @@ public struct DrumGenerator {
     /// not idle in the groove; they enter only as phrases approach a boundary.
     static func trackLevel(_ track: DrumTrack, presence: Double) -> Double {
         switch track {
-        case .hat:     return smoothstep01((presence - 0.12) / 0.24)
-        case .hatOpen: return smoothstep01((presence - 0.30) / 0.25)
-        case .kick:    return smoothstep01((presence - 0.32) / 0.24)
+        // Hats enter close to the kick, not well before it — a long groove of
+        // hats with no kick sounds wrong, so the hats-only window is tiny.
+        case .hat:     return smoothstep01((presence - 0.26) / 0.20)
+        case .hatOpen: return smoothstep01((presence - 0.34) / 0.25)
+        case .kick:    return smoothstep01((presence - 0.30) / 0.22)
         case .snare:   return smoothstep01((presence - 0.47) / 0.24)
         case .clap:    return smoothstep01((presence - 0.64) / 0.22)
         case .rim:     return smoothstep01((presence - 0.22) / 0.34)
-        case .perc, .glitch: return 0
+        // Extended-kit tracks are placed by `extendedPercussion`, not the core
+        // loop, so they contribute no ladder level here.
+        default:       return 0
         }
     }
 
@@ -160,7 +165,9 @@ public struct DrumGenerator {
                                 accentDownbeat: Bool = false,
                                 friction: Double = 0,
                                 styleOverride: GrooveStyle? = nil) -> [NoteEvent] {
-        let density = params["density"]
+        let density = params["density"]     // hats lane
+        let punch = params["punch"]         // big drums: kick / snare / clap decoration
+        let perc = params["perc"]           // percs / effects lane
         let swing = params["swing"]
         let ghost = params["ghost"]
         let ratchet = params["ratchet"]
@@ -168,6 +175,7 @@ public struct DrumGenerator {
         let fills = params["fills"]
         let poly = params["poly"]
         let dynamics = params["dynamics"]
+        let kit = params["kit"]   // 0 = core kit only; 1 = the full 16-pad rack
         let grooveStyle = style(profileSeed: profileSeed, override: styleOverride)
         let effectiveSwing = grooveStyle == .halftime ? min(1, swing + 0.18) : swing
         let falling = nextPresence < presence - 0.01
@@ -239,26 +247,33 @@ public struct DrumGenerator {
                 let isEighthHat = track == .hat && step % 2 == 0
                 let isGhostSnare = track == .snare && weight < 0.4 && !isBackbone
 
+                // Each density lane is a smooth multiplier that reaches zero at
+                // slider 0 and is barely there at low values (calibrated like
+                // presence): `skins` (punch) ramps the kick/snare/clap, `hats`
+                // (density) ramps the timekeepers. Structural hits use a quick
+                // ramp so a moderate setting is already solid.
+                let skinsAmt = min(1, punch * 1.5)
+                let hatsAmt = min(1, density * 1.5)
                 var probability: Double
                 if isBackbone {
-                    // Fully present kick/snare anchors never disappear.
-                    probability = level >= 0.98 ? 1 : level
+                    probability = (level >= 0.98 ? 1 : level) * skinsAmt
                 } else if isQuarterHat {
-                    probability = level >= 0.98 ? 1 : (0.90 + density * 0.10) * level
+                    probability = (level >= 0.98 ? 1 : level) * hatsAmt
                 } else if isEighthHat {
-                    probability = (0.58 + density * 0.38) * level
+                    probability = density * 0.92 * level
                 } else if isGhostSnare {
-                    probability = ghost * (0.16 + density * 0.32) * level
+                    probability = ghost * punch * 0.5 * level
                 } else if track == .hat {
-                    probability = weight * density * 0.42 * level
+                    probability = weight * density * 0.55 * level
                 } else if track == .hatOpen {
-                    probability = weight * (0.30 + density * 0.52) * level
+                    probability = weight * density * 0.82 * level
                 } else if track == .clap {
-                    probability = weight * (0.10 + density * 0.48) * level
+                    probability = weight * punch * 0.72 * level
                 } else if track == .rim {
                     probability = weight * (0.12 + ghost * 0.38 + rising * 0.20) * level
                 } else {
-                    probability = weight * density * level
+                    // Kick / snare optional decoration beyond the fixed backbone.
+                    probability = weight * punch * level
                 }
                 if (track == .kick || track == .snare) && anchors.contains(step) {
                     probability = min(1, probability * 1.08)
@@ -282,12 +297,16 @@ public struct DrumGenerator {
                     velocity = 70
                 case .rim:
                     velocity = 47
-                case .perc, .glitch:
+                default:
                     velocity = 70
                 }
                 // A part entering below its ladder rung whispers before it
                 // reaches full weight; a rare early hit must not jump out.
-                velocity = (velocity + rng.range(-4, 4)) * globalVelocity
+                // Timekeepers (hats) get a much wider velocity spread so they
+                // breathe with life instead of machine-gunning at one level.
+                let jitter = (track == .hat || track == .hatOpen)
+                    ? rng.range(-14, 10) : rng.range(-4, 4)
+                velocity = (velocity + jitter) * globalVelocity
                     * (0.35 + 0.65 * level)
                 if isBackbone { velocity *= Dynamics.scaled(1.08, amount: dynamics) }
 
@@ -332,6 +351,9 @@ public struct DrumGenerator {
                 [(12, .snare), (14, .snare), (15, .snare)],
                 [(10, .perc), (12, .glitch), (14, .snare), (15, .snare)],
                 [(12, .snare), (13, .perc), (14, .glitch), (15, .snare)],
+                // Descending tom fill across the full tom range (47→45→43→41).
+                [(11, .tomHi), (12, .perc), (13, .glitch), (14, .tomLo), (15, .snare)],
+                [(12, .tomHi), (13, .perc), (14, .tomLo), (15, .snare)],
             ]
             let gesture = entering ? [(12, DrumTrack.rim), (14, .rim)]
                                    : gestures[fillRNG.int(gestures.count)]
@@ -414,6 +436,97 @@ public struct DrumGenerator {
             }
         }
 
+        // Wider kit: the `kit` control layers in the rest of the 16-pad rack —
+        // a shaker texture first, then the top row (ride, one-shots) as the
+        // piece opens up. kit == 0 leaves the core grammar above untouched. All
+        // seeded, and gated by presence/tension so it fits the tune.
+        if kit > 0.02 && presence >= 0.3 {
+            var krng = RNG(seed: hashSeed(subSeed, 0x4B49_5442, UInt64(patternBar))) // "KITB"
+
+            // Shaker (pad 44): a quiet texture, the first extra in. Sparse and
+            // velocity-varied so it reads as a live shaker, not a metronome.
+            // Sixteenths only when the kit is wide AND there is real energy.
+            if kit >= 0.12 {
+                let stepBy = (kit > 0.72 && perc + tension > 1.15) ? 1 : 2
+                let amount = min(1, (kit - 0.12) / 0.5)
+                for step in stride(from: 0, to: 16, by: stepBy) {
+                    let off = step % 4 != 0
+                    // Lean onto the offbeats and mostly stay off the on-beat
+                    // eighths, so it reads as a shaker feel rather than a steady
+                    // eighth-note run. The perc lane reaches zero at slider 0.
+                    let p = (off ? 0.34 : 0.07) * amount * min(1, perc * 1.4)
+                    guard krng.chance(p) else { continue }
+                    let sw = step % 2 == 1 ? effectiveSwing * 0.5 : 0
+                    // Offbeat lean plus real jitter — never a flat line.
+                    let base = (off ? 32.0 : 22.0) + krng.range(-9, 13)
+                    let v = Int(max(7, base * globalVelocity * (0.55 + 0.45 * min(1, kit))))
+                    appendHit(track: .shaker, step: Double(step), velocity: v,
+                              duration: 0.3, swingOffset: sw)
+                }
+            }
+
+            // Ride (pad 51): at a peak the kit opens up — ride the eighths,
+            // accent the beats, and let it replace the closed hat. Seeded so it
+            // is not every peak bar.
+            if kit >= 0.4, tension >= 0.62, presence >= 0.72,
+               krng.chance(0.45 + kit * 0.4) {
+                events.removeAll { $0.note == DrumTrack.hat.note }
+                for step in stride(from: 0, to: 16, by: 2) {
+                    let beat = step % 4 == 0
+                    appendHit(track: .ride, step: Double(step),
+                              velocity: Int((beat ? 66 : 48) * globalVelocity),
+                              duration: 0.5,
+                              swingOffset: step % 4 == 2 ? effectiveSwing * 0.55 : 0)
+                }
+            }
+
+            // Percussion figures: a different authored gesture each time it
+            // fires — varied pads, placement and dynamics — so a wide kit keeps
+            // developing instead of repeating one shaker line. Seeded per bar.
+            if kit >= 0.35, presence >= 0.5 {
+                // Seed on the pattern bar so a déjà-vu loop repeats its figures.
+                var frng = RNG(seed: hashSeed(subSeed, 0x5046_4947, UInt64(patternBar))) // "PFIG"
+                let gv = globalVelocity
+                func perch(_ t: DrumTrack, _ step: Double, _ v: Double, _ dur: Double = 0.4) {
+                    appendHit(track: t, step: step, velocity: Int(max(6, v * gv)), duration: dur)
+                }
+                // Rule-respecting variety only: cymbal / one-shot / rim / accent
+                // pads. Toms stay reserved for fills — no scattered congas.
+                if frng.chance(min(0.8, (0.10 + kit * 0.28) * min(1, perc * 1.4))) {
+                    switch frng.int(5) {
+                    case 0:
+                        // One or two top-pad stabs on syncopations.
+                        let slots = [3, 7, 10, 11, 14, 15]
+                        for _ in 0..<(1 + frng.int(2)) {
+                            perch(frng.chance(0.5) ? .oneShot : .oneShotHi,
+                                  Double(slots[frng.int(slots.count)]),
+                                  46 + frng.range(-12, 22), 0.5)
+                        }
+                    case 1:
+                        // Shaker sixteenth flourish into the next downbeat.
+                        for i in 0..<4 {
+                            perch(.shaker, 12.0 + Double(i), 24 + Double(i) * 6 + frng.range(-6, 8), 0.22)
+                        }
+                    case 2:
+                        // Rim clave (3-2 or 2-3 son) — side-stick, quiet.
+                        for s in (frng.chance(0.5) ? [0, 3, 6, 10, 12] : [2, 4, 8, 11, 14])
+                        where frng.chance(0.75) {
+                            perch(.rim, Double(s), 40 + frng.range(-6, 12), 0.3)
+                        }
+                    case 3:
+                        // An accent-pad answer on a backbeat offbeat.
+                        perch(.accent, frng.chance(0.5) ? 6 : 14, 52 + frng.range(-8, 16), 0.35)
+                    default:
+                        // Off-kilter top-pad ostinato — a 3-against-4 lean.
+                        for k in 0..<3 {
+                            let s = k * 3 + frng.int(2)
+                            if s < 16 { perch(.oneShotHi, Double(s), 40 + frng.range(-10, 16), 0.35) }
+                        }
+                    }
+                }
+            }
+        }
+
         // Cadence/phrase downbeat: one decisive kick and cymbal opening. The
         // open hat replaces a closed hat so a normal choke group behaves too.
         if accentDownbeat {
@@ -429,6 +542,10 @@ public struct DrumGenerator {
                 $0.note == DrumTrack.hatOpen.note && $0.startStep == 0
             }) {
                 appendHit(track: .hatOpen, step: 0, velocity: 92, duration: 2)
+            }
+            // A wider kit crashes the arrival (top-row cymbal).
+            if kit >= 0.3 {
+                appendHit(track: .crash, step: 0, velocity: 102, duration: 3)
             }
         }
         return events

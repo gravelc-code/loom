@@ -291,7 +291,7 @@ struct LoomApp: App {
         WindowGroup("loom") {
             ContentView(model: model)
         }
-        .defaultSize(width: 1180, height: 720)
+        .defaultSize(width: 1180, height: 860)
         .windowResizability(.contentSize)
     }
 }

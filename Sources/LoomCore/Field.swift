@@ -34,6 +34,12 @@ public final class Field {
         reset()
     }
 
+    /// A copy of the mutable simulation state, for the display lookahead's
+    /// snapshot/restore (the field is sequential — see Engine.previewBars).
+    struct State { var grid: [Float]; var u: [Float]; var v: [Float] }
+    func captureState() -> State { State(grid: grid, u: u, v: v) }
+    func restore(_ s: State) { grid = s.grid; u = s.u; v = s.v }
+
     public func reset() {
         let n = Field.size * Field.size
         u = [Float](repeating: 1, count: n)

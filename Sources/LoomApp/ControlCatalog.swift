@@ -102,12 +102,17 @@ enum ControlCatalog {
         case .drums:
             return [
                 presence(voice, "Biases when the kit enters and how fully it remains present."),
-                c(voice, "density", "density", .continuous(low: "backbone", high: "decorated"),
-                  "Adds optional kit detail around the dependable kick, snare, and hat grammar.", "The conductor still scales density with kit presence."),
                 c(voice, "swing", "swing", .continuous(low: "straight", high: "late offbeats"),
                   "Delays off-eighths without moving the structural backbeat.", "Half-time adds a small style-specific swing bias."),
                 c(voice, "ghost", "ghosts", .continuous(low: "clean", high: "answered"),
                   "Introduces quiet side-stick and snare answers around the backbone.", "Ghosts remain subordinate to the main snare."),
+                // The three density lanes, kept together on one row.
+                c(voice, "punch", "skins", .continuous(low: "backbone", high: "driving"),
+                  "How much the kick, snare and clap decorate beyond their fixed backbone.", "The structural kick/snare spine is always present; this adds the optional hits."),
+                c(voice, "density", "hats", .continuous(low: "sparse", high: "busy"),
+                  "Density of the closed and open hats — the timekeeping layer.", "Quarter-note hats hold; this fills in the eighths and sixteenths."),
+                c(voice, "perc", "perc", .continuous(low: "clean", high: "busy"),
+                  "Busyness of the wider percussion — the shaker and top-row one-shots.", "The kit width control chooses which pads; this sets how often they play."),
                 c(voice, "ratchet", "ratchets", .choices([
                     .init(label: "off", value: 0), .init(label: "controlled", value: 0.20), .init(label: "busy", value: 0.65)]),
                   "Chooses how readily hats or snares fracture near fills.", "At most one controlled roll is favored over random retriggering."),
@@ -123,6 +128,9 @@ enum ControlCatalog {
                   "Sets the depth of metric accents, crescendos, and drop impact.", "This changes velocity shape, not MIDI track volume."),
                 c(voice, "humanize", "feel", .choices(humanize),
                   "Adds correlated micro-timing and velocity movement.", "The backbone stays within a safe timing window."),
+                c(voice, "kit", "kit width", .choices([
+                    .init(label: "limited", value: 0), .init(label: "wide", value: 0.5), .init(label: "full", value: 0.9)]),
+                  "Widens the palette across the 16-pad rack — a shaker, then the top-row ride, crash and one-shots.", "Limited keeps the core kick / snare / hat grammar; extras layer in only as the piece opens up."),
             ]
 
         case .bass:
