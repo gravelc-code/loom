@@ -157,6 +157,9 @@ struct ContentView: View {
             heroKnob("grit", value: $model.grit, reset: 0.45,
                      summary: "Adds harmonic bite, phrase fractures, and stronger structural intervention.",
                      range: "pure  →  colored  →  frayed")
+            heroKnob("segue", value: $model.transitions, reset: 0.5,
+                     summary: "How pronounced the transitions between sections are — the slow filter movement, reverb-wash and section-bridge swell that carry one part into the next.",
+                     range: "subtle  →  shaped  →  sweeping")
             heroKnob("evolve", value: $model.evolutionRate, reset: 0.5,
                      summary: "Sets the speed of every slow modulation source; zero now genuinely freezes them.",
                      range: "still  →  breathing  →  fast drift")

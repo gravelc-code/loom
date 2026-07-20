@@ -27,6 +27,8 @@ struct PerformanceState: Codable, Sendable {
     /// Optional keeps version-1 synthesized decoding backward compatible.
     var arrangementCues: [ArrangementCue]? = nil
     var clockMode: ClockMode? = nil
+    /// Optional keeps older saved states decodable; applied as 0.5 when absent.
+    var transitions: Double? = nil
 
     func value<T>(_ map: [String: T], for voice: Voice, default fallback: T) -> T {
         map[voice.rawValue] ?? fallback
@@ -47,6 +49,7 @@ struct PerformanceState: Codable, Sendable {
         out.wander = mix(wander, target.wander)
         out.grit = mix(grit, target.grit)
         out.push = mix(push, target.push)
+        out.transitions = mix(transitions ?? 0.5, target.transitions ?? 0.5)
         for voice in Voice.allCases {
             let key = voice.rawValue
             out.drift[key] = mix(drift[key] ?? 0.5, target.drift[key] ?? 0.5)
@@ -138,6 +141,7 @@ struct PerformanceState: Codable, Sendable {
         engine.evolution.wander = wander
         engine.evolution.grit = grit
         engine.evolution.push = push
+        engine.evolution.transitions = transitions ?? 0.5
         engine.evolution.grooveStyle = grooveStyle
         engine.evolution.arrangementCues = arrangementCues ?? []
         engine.harmonyEngine.dialectOverride = harmonyDialect

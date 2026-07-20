@@ -38,10 +38,13 @@ public enum Defaults {
         case .drums:
             return ParamSet(voice: .drums, defaults: [
                 "amount": 0.5,
-                // Three density lanes: `density` = hats, `punch` = the big
-                // drums (kick/snare/clap decoration), `perc` = percs/effects.
-                "density": 0.68, "punch": 0.72, "perc": 0.5,
-                "swing": 0.18, "ghost": 0.32, "ratchet": 0.18,
+                // `genre`: 0 = auto (seed/dialect picks). Three density lanes:
+                // `density` = hats, `punch` = the big drums (kick/snare core),
+                // `perc` = percs/effects. Defaults lean sparse & supportive so
+                // the drums underpin rather than lead.
+                "genre": 0.0,
+                "density": 0.54, "punch": 0.66, "perc": 0.4,
+                "swing": 0.18, "ghost": 0.30, "ratchet": 0.18,
                 "fills": 0.58, "poly": 0.2, "recur": 0.55, "dynamics": 0.68,
                 "humanize": 0.4, "kit": 0.5,
             ])
@@ -79,7 +82,7 @@ public enum Defaults {
     /// Display order for the UI (dictionary order is meaningless).
     public static func order(for voice: Voice) -> [String] {
         switch voice {
-        case .drums:  return ["amount", "punch", "density", "perc", "swing", "ghost", "ratchet", "fills", "poly", "recur", "dynamics", "humanize", "kit"]
+        case .drums:  return ["amount", "genre", "punch", "density", "perc", "swing", "ghost", "ratchet", "fills", "poly", "recur", "dynamics", "humanize", "kit"]
         case .bass:   return ["amount", "density", "octave", "follow", "approach", "accent", "glide", "recur"]
         case .chords: return ["amount", "register", "spread", "humanize"]
         case .melody: return ["amount", "density", "rest", "register", "length",
@@ -125,6 +128,10 @@ public struct EvolutionControls: Sendable {
     /// Master energy: scales every voice's presence and density at once.
     /// 0.5 = follow the conductor, 0 = space, 1 = everyone plays.
     public var push: Double = 0.5
+    /// How long and dramatic the transitions are — build-up length, the drum
+    /// rush, riser/filter/downlifter automation depth, and the fall out of a
+    /// peak. 0 = terse (a bar or two), 0.5 = shaped, 1 = long, epic run-ups.
+    public var transitions: Double = 0.5
     /// Nil keeps the groove seeded/autonomous; a value explicitly directs it.
     public var grooveStyle: DrumGenerator.GrooveStyle?
     /// Absolute-bar live cues layered over the autonomous conductor.

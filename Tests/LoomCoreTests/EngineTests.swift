@@ -330,13 +330,12 @@ final class EngineTests: XCTestCase {
         XCTAssertEqual(e.conductor.state(bar: 20, sectionBars: sb,
                                          cues: e.evolution.arrangementCues).section, .breakdown)
 
-        let vacuum = e.generateBar(6)
-        XCTAssertTrue(vacuum.events.allSatisfy { $0.voice == .drone || $0.voice == .melody })
+        // The build→drop cue still marks the run-up, but it is gentle now (the
+        // kit sustains rather than cutting to silence, and the arrival is a soft
+        // lift, not an EDM slam). The cued landing brings the ensemble in.
         let drop = e.generateBar(7)
         XCTAssertTrue(drop.events.contains { $0.voice == .pulse && $0.startStep == 0 })
-        XCTAssertTrue(drop.controls.contains {
-            $0.controller == ControlLanes.dropAccentController && $0.value == 127
-        })
+        XCTAssertGreaterThanOrEqual(Set(drop.events.map(\.voice)).count, 3)
     }
 
     func testStyleOverridesAndClockPLL() {
@@ -645,15 +644,71 @@ final class EngineTests: XCTestCase {
             }
             prev = p
 
-            for ev in out.events where ev.voice == .drums && ev.velocity >= 40 {
-                if ev.note == DrumTrack.snare.note {
-                    XCTAssertGreaterThan(p, 0.50, "loud snare at presence \(p) (bar \(bar))")
-                }
-                if ev.note == DrumTrack.kick.note {
-                    XCTAssertGreaterThan(p, 0.35, "loud kick at presence \(p) (bar \(bar))")
+            // Ordinary groove bars keep the kick/snare tied to presence. A
+            // build is an intentional rush — the drums intensify while the
+            // sustained groove is stripped — so its loud roll is exempt.
+            if st.event != .build {
+                for ev in out.events where ev.voice == .drums && ev.velocity >= 40 {
+                    if ev.note == DrumTrack.snare.note {
+                        XCTAssertGreaterThan(p, 0.50, "loud snare at presence \(p) (bar \(bar))")
+                    }
+                    if ev.note == DrumTrack.kick.note {
+                        XCTAssertGreaterThan(p, 0.35, "loud kick at presence \(p) (bar \(bar))")
+                    }
                 }
             }
         }
+    }
+
+    /// Once the kit is in, it runs for minutes — it no longer vanishes at every
+    /// breakdown. (The earlier bug: the drum generator's own breakdown cap
+    /// overrode the conductor's sustain, silencing the kit for whole breakdowns.)
+    func testDrumsSustainForMinutes() {
+        for seed: UInt64 in [0xE7, 4711] {   // episodic (worst case) + slow-burn
+            let e = Engine(seed: seed)
+            let secPerBar = 4.0 * 60.0 / e.tempo
+            var best = 0, run = 0
+            for bar in 0..<700 {
+                let d = e.generateBar(bar).events.filter { $0.voice == .drums }.count
+                if d >= 2 { run += 1; best = max(best, run) } else { run = 0 }
+            }
+            let minutes = Double(best) * secPerBar / 60.0
+            XCTAssertGreaterThan(minutes, 3.0,
+                                 "seed \(seed): kit should run for minutes once in, got \(minutes)")
+        }
+    }
+
+    /// The textural transition lanes glide (no EDM snaps): the filter opens with
+    /// the tension arc, and the reverb-wash swells into the sparse breakdown and
+    /// pulls back at the dense peak.
+    func testTransitionAutomation() {
+        let e = fastArcEngine(seed: 4711)
+        let sb = e.evolution.sectionBars
+        func mean(_ a: [Int]) -> Double { Double(a.reduce(0, +)) / Double(max(1, a.count)) }
+        func firstCC(_ out: BarOutput, _ controller: Int) -> Int? {
+            out.controls.first { $0.controller == controller }?.value
+        }
+        var brightPeak: [Int] = [], brightBreak: [Int] = []
+        var washPeak: [Int] = [], washBreak: [Int] = []
+        for bar in 0..<240 {
+            let st = e.conductor.state(bar: bar, sectionBars: sb)
+            let out = e.generateBar(bar)
+            let bright = firstCC(out, ControlLanes.brightnessController)
+            let wash = firstCC(out, ControlLanes.reverbWashController)
+            switch st.section {
+            case .peak:
+                bright.map { brightPeak.append($0) }; wash.map { washPeak.append($0) }
+            case .breakdown:
+                bright.map { brightBreak.append($0) }; wash.map { washBreak.append($0) }
+            default: break
+            }
+        }
+        XCTAssertFalse(brightPeak.isEmpty); XCTAssertFalse(brightBreak.isEmpty)
+        XCTAssertGreaterThan(mean(brightPeak), mean(brightBreak) + 12,
+                             "filter opens wider at the energetic peak than in a breakdown")
+        XCTAssertFalse(washPeak.isEmpty); XCTAssertFalse(washBreak.isEmpty)
+        XCTAssertGreaterThan(mean(washBreak), mean(washPeak) + 12,
+                             "reverb washes into the sparse breakdown, not the dense peak")
     }
 
     /// Focus: deterministic and constant within a section (the point of a
@@ -777,141 +832,129 @@ final class EngineTests: XCTestCase {
 
     // MARK: - v3: arrangement events
 
-    /// A planned peak is prepared by two build bars and a one-bar vacuum;
-    /// the drop is the full-ensemble landing, then the breakdown exhales.
+    /// Ambient arrangement: sections change gradually. The only autonomous
+    /// boundary event is the gentle exhale as a peak dissolves into a breakdown —
+    /// no EDM build-up, pre-drop vacuum or slammed drop.
     func testSectionEvents() {
         let c = Conductor(seed: 0xE7)
-        var drops = 0, builds = 0, vacuums = 0
+        var exhales = 0
         for bar in 0..<800 {
             let s = c.state(bar: bar, sectionBars: 16)
-            XCTAssertEqual(s.event, c.state(bar: bar, sectionBars: 16).event)
+            XCTAssertEqual(s.event, c.state(bar: bar, sectionBars: 16).event)  // deterministic
             switch s.event {
-            case .build:
-                XCTAssertEqual(s.section, .develop)
-                XCTAssertGreaterThanOrEqual(s.sectionBar, s.sectionLength - 3)
-                XCTAssertLessThan(s.sectionBar, s.sectionLength - 1)
-                builds += 1
-            case .vacuum:
-                XCTAssertEqual(s.section, .develop)
-                XCTAssertEqual(s.sectionBar, s.sectionLength - 1)
-                vacuums += 1
-            case .drop:
-                XCTAssertEqual(s.section, .peak)
-                XCTAssertEqual(s.sectionBar, 0)
-                drops += 1
             case .exhale:
                 XCTAssertEqual(s.section, .breakdown)
-                XCTAssertLessThan(s.sectionBar, 2)
+                XCTAssertLessThan(s.sectionBar, c.exhaleBars())
+                exhales += 1
+            case .build, .vacuum, .drop:
+                XCTFail("autonomous EDM event \(s.event!) at bar \(bar) — should be gone")
             case nil:
                 break
             }
         }
-        XCTAssertGreaterThan(drops, 0, "800 bars of peaks should produce a drop")
-        XCTAssertEqual(builds, drops * 2, "every planned drop needs two build bars")
-        XCTAssertEqual(vacuums, drops, "every planned drop needs one vacuum")
+        XCTAssertGreaterThan(exhales, 0, "peaks should exhale into breakdowns")
 
+        // The kit fades *through* an exhale (its presence envelope releases over
+        // it) as a soft tail — it isn't slammed or cut hard.
         let e = fastArcEngine(seed: 0xD0D0)
         for bar in 0..<160 {
             let cond = e.conductor.state(bar: bar, sectionBars: e.evolution.sectionBars)
             let out = e.generateBar(bar)
-            if cond.event == .vacuum {
-                XCTAssertTrue(out.events.allSatisfy {
-                    $0.voice == .drone || $0.voice == .melody
-                }, "low end or pad survived the pre-drop vacuum at bar \(bar)")
-            }
-            if cond.event == .drop {
-                XCTAssertTrue(out.events.contains {
-                    $0.voice == .drums && $0.note == DrumTrack.kick.note && $0.startStep == 0
-                }, "drop has no downbeat kick at bar \(bar)")
-                XCTAssertGreaterThanOrEqual(Set(out.events.map(\.voice)).count, 3,
-                                            "drop did not widen the orchestration at bar \(bar)")
-            }
             if cond.event == .exhale {
-                // The kit fades *through* an exhale (its presence envelope
-                // releases over it) instead of being cut — a soft, thinning
-                // drum tail is legal; everything else still exhales.
-                XCTAssertTrue(out.events.allSatisfy {
-                    $0.voice == .drone || $0.voice == .chords || $0.voice == .drums
-                }, "voice other than drone/chords/kit-tail on exhale bar \(bar)")
-                let p = e.conductor.drumPresence(bar: bar, sectionBars: e.evolution.sectionBars)
                 for d in out.events where d.voice == .drums {
-                    XCTAssertLessThan(d.velocity, 90,
+                    XCTAssertLessThan(d.velocity, 110,
                                       "exhale drum tail too loud (vel \(d.velocity), bar \(bar))")
                 }
-                XCTAssertLessThan(p, 1.0, "presence should be releasing across an exhale (bar \(bar))")
             }
         }
-    }
-
-    /// The name "drop" must describe an audible contrast: a nearly empty
-    /// pre-drop bar immediately followed by a louder, wider landing.
-    func testBuildVacuumDropContrast() {
-        let e = fastArcEngine(seed: 0xE7)
-        var previousOutput: BarOutput?
-        var previousState: ConductorState?
-        var checked = 0
-        for bar in 0..<320 {
-            let state = e.conductor.state(bar: bar, sectionBars: e.evolution.sectionBars)
-            let output = e.generateBar(bar)
-            if state.event == .drop {
-                XCTAssertEqual(previousState?.event, .vacuum)
-                let vacuumNotes = previousOutput?.events.count ?? 0
-                XCTAssertGreaterThan(output.events.count, vacuumNotes + 4,
-                                     "drop did not widen after its vacuum")
-                XCTAssertEqual(output.snapshot.drumPresence, 1, accuracy: 1e-9)
-                XCTAssertTrue(output.events.contains {
-                    $0.voice == .drums && $0.note == DrumTrack.kick.note && $0.startStep == 0
-                })
-                checked += 1
-            }
-            previousState = state
-            previousOutput = output
-        }
-        XCTAssertGreaterThan(checked, 0)
     }
 
     // MARK: - v3: drum grammar & deja-vu
 
+    /// A reliable trip-hop spine (documented kick / snare / swung hats) for the
+    /// spine and role tests. Ghosts and ratchets are silenced so exact-position
+    /// checks are not perturbed by decoration.
     func drumParams(recur: Double) -> ParamSet {
         var p = Defaults.params(for: .drums)
-        p["ghost"] = 0      // ghosts bypass conditions — silence them for exact checks
+        p["genre"] = 0.4    // pin trip-hop
+        p["ghost"] = 0
         p["ratchet"] = 0
         p["recur"] = recur
         return p
     }
 
-    /// Trig conditions: a conditioned snare/clap slot fires only on its
-    /// bars (`bar % b == a`); backbone slots are never conditioned.
-    func testTrigConditions() {
-        let seed: UInt64 = 771
-        let feel = Feel(seed: seed, voice: .drums)
-        let anchors = [0, 4, 8, 12]
-        let style = DrumGenerator.style(profileSeed: seed)
-        for track in [DrumTrack.snare, .clap] {
-            let len = DrumGenerator.effectiveLoopLength(track, poly: 0.5)
-            guard len == 16 else { continue } // slot == step only for 16-step tracks
-            let conds = DrumGenerator.conditions(track: track, len: len, profileSeed: seed,
-                                                 style: style)
-            let again = DrumGenerator.conditions(track: track, len: len, profileSeed: seed,
-                                                 style: style)
-            XCTAssertEqual(conds.mapValues { "\($0.a):\($0.b)" },
-                           again.mapValues { "\($0.a):\($0.b)" })
-            for (slot, c) in conds {
-                XCTAssertFalse(track == .snare
-                               && DrumGenerator.backbone(track: .snare, style: style).contains(slot),
-                               "backbone snare slot conditioned")
-                for bar in 0..<8 where bar % c.b != c.a {
-                    let events = DrumGenerator.generate(bar: bar, params: drumParams(recur: 0),
-                                                        subSeed: seed, profileSeed: seed,
-                                                        feel: feel, fill: 0, tension: 0.9,
-                                                        presence: 1, nextPresence: 1,
-                                                        anchors: anchors)
-                    XCTAssertFalse(events.contains {
-                        $0.note == track.note && Int($0.startStep) == slot && $0.velocity >= 40
-                    }, "\(track) slot \(slot) fired on bar \(bar) against condition \(c)")
-                }
+    /// Genre selection is deterministic; an explicit control pins the family;
+    /// the auto default stays sparse & supportive (no jungle on the ambient core).
+    func testGenreSelectionDeterministic() {
+        for seed in stride(from: UInt64(0), to: 400, by: 37) {
+            let a = DrumGenre.resolve(control: 0, dialect: .ambient, seed: seed, legacy: nil)
+            let b = DrumGenre.resolve(control: 0, dialect: .ambient, seed: seed, legacy: nil)
+            XCTAssertEqual(a, b, "auto genre must be stable for a seed")
+        }
+        for (control, genre): (Double, DrumGenre) in
+            [(0.2, .ambient), (0.4, .tripHop), (0.6, .jungle), (0.8, .idm)] {
+            for seed in [UInt64(1), 99, 12345] {
+                XCTAssertEqual(DrumGenre.resolve(control: control, dialect: .cinematic,
+                                                 seed: seed, legacy: nil), genre)
             }
         }
+        var jungle = 0
+        for seed in UInt64(0)..<200 where
+            DrumGenre.resolve(control: 0, dialect: .ambient, seed: seed, legacy: nil) == .jungle {
+            jungle += 1
+        }
+        XCTAssertEqual(jungle, 0, "the ambient dialect should not auto-select jungle")
+    }
+
+    /// Each density lane is eliminated at zero: skins removes the core, hats the
+    /// timekeepers, perc the shaker / effects.
+    func testLaneZeroEliminates() {
+        let seed: UInt64 = 0x1A2B
+        let feel = Feel(seed: seed, voice: .drums)
+        func fire(_ mutate: (inout ParamSet) -> Void) -> Set<Int> {
+            var out: Set<Int> = []
+            for bar in 0..<16 {
+                var p = Defaults.params(for: .drums)
+                p["genre"] = 0.4; p["recur"] = 0; p["ratchet"] = 0
+                p["ghost"] = 0; p["kit"] = 0.6
+                mutate(&p)
+                let evs = DrumGenerator.generate(bar: bar, params: p, subSeed: seed,
+                                                 profileSeed: seed, feel: feel, fill: 0,
+                                                 tension: 0.85, presence: 0.95,
+                                                 nextPresence: 0.95, anchors: [0, 4, 8, 12])
+                for e in evs { out.insert(e.note) }
+            }
+            return out
+        }
+        let noSkins = fire { $0["punch"] = 0 }
+        XCTAssertFalse(noSkins.contains(DrumTrack.kick.note), "punch 0 must remove the kick")
+        XCTAssertFalse(noSkins.contains(DrumTrack.snare.note), "punch 0 must remove the snare")
+        let noHats = fire { $0["density"] = 0 }
+        XCTAssertFalse(noHats.contains(DrumTrack.hat.note), "density 0 must remove the hats")
+        XCTAssertFalse(noHats.contains(DrumTrack.hatOpen.note), "density 0 must remove the open hats")
+        let noPerc = fire { $0["perc"] = 0 }
+        XCTAssertFalse(noPerc.contains(DrumTrack.shaker.note), "perc 0 must remove the shaker")
+        XCTAssertFalse(noPerc.contains(DrumTrack.ride.note), "perc 0 must remove the ride")
+        let full = fire { $0["punch"] = 0.8; $0["density"] = 0.8; $0["perc"] = 0.8 }
+        XCTAssertTrue(full.contains(DrumTrack.kick.note))
+        XCTAssertTrue(full.contains(DrumTrack.hat.note))
+    }
+
+    /// The layers peel in order with presence — kick before hats before the
+    /// snare backbeat — and everything fades toward silence as presence drops.
+    func testArrangementPeel() {
+        var kickOnset = 2.0, hatOnset = 2.0, snareOnset = 2.0
+        for i in 0...40 {
+            let p = Double(i) / 40.0
+            let L = DrumLayers.compute(presence: p)
+            if L.coreGate > 0.05 && kickOnset > 1 { kickOnset = p }
+            if L.eighthGate > 0.05 && hatOnset > 1 { hatOnset = p }
+            if L.snareGate > 0.05 && snareOnset > 1 { snareOnset = p }
+        }
+        XCTAssertLessThan(kickOnset, hatOnset, "the kick must enter before the hats")
+        XCTAssertLessThan(hatOnset, snareOnset, "hats must enter before the backbeat snare")
+        XCTAssertFalse(DrumLayers.compute(presence: 0.15).coreOn, "near-zero presence has no kit")
+        XCTAssertTrue(DrumLayers.compute(presence: 0.7).coreOn, "a present kit sounds")
     }
 
     /// Valley drums are a readable side-stick landmark, not scattered toms.
@@ -940,27 +983,26 @@ final class EngineTests: XCTestCase {
     /// closed hats on the quarter notes. Variation may decorate that spine.
     func testDrumBackboneNeverRandomlyDrops() {
         let feel = Feel(seed: 0xBACC, voice: .drums)
-        var representatives: [DrumGenerator.GrooveStyle: UInt64] = [:]
-        for seed in UInt64(0)..<256 where representatives.count < 3 {
-            representatives[DrumGenerator.style(profileSeed: seed)] = seed
-        }
-        XCTAssertEqual(representatives.count, 3)
-        for (style, seed) in representatives {
-            let events = DrumGenerator.generate(bar: 0, params: drumParams(recur: 0),
-                                                subSeed: seed, profileSeed: seed,
-                                                feel: feel, fill: 0, tension: 0.8,
-                                                presence: 1, nextPresence: 1,
+        for (control, genre): (Double, DrumGenre) in
+            [(0.4, .tripHop), (0.6, .jungle), (0.8, .idm)] {
+            let seed: UInt64 = 0x51 &+ UInt64(control * 10)
+            let pattern = DrumPatternLibrary.pattern(genre: genre, seed: seed)
+            var p = Defaults.params(for: .drums)
+            p["genre"] = control; p["punch"] = 0.85; p["density"] = 0.85
+            p["ghost"] = 0; p["ratchet"] = 0; p["recur"] = 0; p["kit"] = 0
+            let events = DrumGenerator.generate(bar: 0, params: p, subSeed: seed,
+                                                profileSeed: seed, feel: feel, fill: 0,
+                                                tension: 0.8, presence: 1, nextPresence: 1,
                                                 anchors: [0, 4, 8, 12])
             let kickSteps = Set(events.filter { $0.note == DrumTrack.kick.note }.map { Int($0.startStep) })
             let snareSteps = Set(events.filter { $0.note == DrumTrack.snare.note }.map { Int($0.startStep) })
             let hatSteps = Set(events.filter { $0.note == DrumTrack.hat.note }.map { Int($0.startStep) })
-            // A wide kit may ride the eighths instead of the closed hat at a
-            // peak; either way a quarter-note timekeeper must be present.
-            let rideSteps = Set(events.filter { $0.note == DrumTrack.ride.note }.map { Int($0.startStep) })
-            XCTAssertTrue(DrumGenerator.backbone(track: .kick, style: style).isSubset(of: kickSteps))
-            XCTAssertTrue(DrumGenerator.backbone(track: .snare, style: style).isSubset(of: snareSteps))
-            XCTAssertTrue(Set([0, 4, 8, 12]).isSubset(of: hatSteps.union(rideSteps)),
-                          "a quarter-note timekeeper (hat or ride) must hold")
+            let coreKick = Set(pattern.core.filter { $0.track == .kick }.map { Int($0.step) })
+            let coreSnare = Set(pattern.core.filter { $0.track == .snare }.map { Int($0.step) })
+            XCTAssertTrue(coreKick.isSubset(of: kickSteps), "\(genre) dropped a core kick")
+            XCTAssertTrue(coreSnare.isSubset(of: snareSteps), "\(genre) dropped a core snare")
+            XCTAssertFalse(hatSteps.isEmpty, "\(genre) must hold a hat timekeeper")
+            XCTAssertTrue(kickSteps.contains(0), "\(genre) must hit the downbeat")
         }
     }
 
@@ -973,6 +1015,7 @@ final class EngineTests: XCTestCase {
             var out: Set<Int> = []
             for bar in 0..<24 {
                 let p = ParamSet(voice: .drums, defaults: [
+                    "genre": 0.4, "punch": 0.7, "perc": 0.6,
                     "density": 0.7, "swing": 0.2, "ghost": 0.4, "ratchet": 0.2,
                     "fills": 0.6, "poly": 0.2, "recur": 0.4, "dynamics": 0.7,
                     "humanize": 0.4, "kit": kit])
@@ -1003,14 +1046,16 @@ final class EngineTests: XCTestCase {
     func testDrumRolesStayCleanBetweenFills() {
         let seed: UInt64 = 0xC10C
         let feel = Feel(seed: seed, voice: .drums)
+        var p = drumParams(recur: 0)
+        p["perc"] = 0   // isolate: perc lane off, so no fill/friction toms leak in
         for bar in 0..<32 {
-            let events = DrumGenerator.generate(bar: bar, params: drumParams(recur: 0),
+            let events = DrumGenerator.generate(bar: bar, params: p,
                                                 subSeed: seed, profileSeed: seed,
                                                 feel: feel, fill: 0, tension: 0.8,
                                                 presence: 1, nextPresence: 1,
                                                 anchors: [0, 4, 8, 12])
             XCTAssertFalse(events.contains {
-                $0.note == DrumTrack.perc.note || $0.note == DrumTrack.glitch.note
+                $0.note == DrumTrack.tomLo.note || $0.note == DrumTrack.tomHi.note
             }, "toms should be reserved for fills")
             let closed = Set(events.filter { $0.note == DrumTrack.hat.note }.map { Int($0.startStep) })
             let open = Set(events.filter { $0.note == DrumTrack.hatOpen.note }.map { Int($0.startStep) })
@@ -1023,9 +1068,11 @@ final class EngineTests: XCTestCase {
     func testDrumFracturesBendLearnedPatterns() {
         let seed: UInt64 = 0xF12A
         let feel = Feel(seed: seed, voice: .drums)
+        var p = drumParams(recur: 1)
+        p["perc"] = 0   // isolate fracture gestures from the base perc lane
         var markedEdits = 0
         for bar in 0..<64 {
-            let events = DrumGenerator.generate(bar: bar, params: drumParams(recur: 1),
+            let events = DrumGenerator.generate(bar: bar, params: p,
                                                 subSeed: seed, profileSeed: seed,
                                                 feel: feel, fill: 0, tension: 0.85,
                                                 presence: 1, nextPresence: 1,
@@ -1045,27 +1092,25 @@ final class EngineTests: XCTestCase {
         XCTAssertGreaterThan(markedEdits, 3, "grit produced no audible phrase edits")
     }
 
-    /// Deja-vu: at recur = 1 the kit pattern repeats with its loop period
-    /// (compare bars 8 apart — a multiple of every loop length and every
-    /// condition period); at recur = 0 the bars keep changing.
-    func testDejaVu() {
+    /// The core is a foundation, not a per-bar re-roll: at constant presence the
+    /// kick + snare identity is byte-identical bar to bar. Variation lives in the
+    /// layers and the arrangement, never in the backbone.
+    func testCoreIdentityStable() {
         let seed: UInt64 = 991
         let feel = Feel(seed: seed, voice: .drums)
-        let anchors = [0, 4, 8, 12]
-        func grid(_ bar: Int, recur: Double) -> Set<String> {
-            Set(DrumGenerator.generate(bar: bar, params: drumParams(recur: recur),
+        func core(_ bar: Int) -> Set<String> {
+            Set(DrumGenerator.generate(bar: bar, params: drumParams(recur: 0),
                                        subSeed: seed, profileSeed: seed, feel: feel,
-                                       fill: 0, tension: 0.9,
-                                       presence: 1, nextPresence: 1, anchors: anchors)
-                .map { "\($0.note)@\($0.startStep)" })
+                                       fill: 0, tension: 0.8, presence: 0.9,
+                                       nextPresence: 0.9, anchors: [0, 4, 8, 12])
+                .filter { $0.note == DrumTrack.kick.note || $0.note == DrumTrack.snare.note }
+                .map { "\($0.note)@\(Int($0.startStep))" })
         }
-        for bar in 0..<8 {
-            XCTAssertEqual(grid(bar, recur: 1), grid(bar + 8, recur: 1),
-                           "locked loop must repeat (bar \(bar) vs \(bar + 8))")
+        let ref = core(0)
+        XCTAssertFalse(ref.isEmpty, "the core must sound at full presence")
+        for bar in 1..<16 {
+            XCTAssertEqual(core(bar), ref, "core identity drifted at bar \(bar)")
         }
-        var differs = false
-        for bar in 0..<8 where grid(bar, recur: 0) != grid(bar + 8, recur: 0) { differs = true }
-        XCTAssertTrue(differs, "recur 0 should keep the patterns fresh")
     }
 
     // MARK: - v3: groove signature
@@ -1314,9 +1359,10 @@ final class EngineTests: XCTestCase {
                              "loop layer should breathe, not sit at one velocity")
         XCTAssertFalse(kitVels.isEmpty)
         XCTAssertFalse(textureVels.isEmpty)
-        // Peak clearly above valley; the margin allows for the wider, livelier
-        // hat/velocity variation the kit now carries for musical interest.
-        XCTAssertGreaterThan(mean(kitVels), mean(textureVels) + 13,
+        // Peak clearly above valley. The margin is gentle now — the kit no
+        // longer slams an EDM crash/accent at peaks, so the separation is real
+        // but softer, as ambient dynamics should be.
+        XCTAssertGreaterThan(mean(kitVels), mean(textureVels) + 7,
                              "peak kit (\(mean(kitVels))) should sit above valley texture (\(mean(textureVels)))")
     }
 

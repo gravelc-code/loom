@@ -60,7 +60,9 @@ swift run --scratch-path ~/.cache/loom-build LoomApp --check
   starts a new seeded piece. Click the short seed token to edit all 64 bits;
   save/load/export, snapshots and mutation live in the adjacent utility menu.
 - The performance macros put **push** (ensemble energy), **grit** (chromatic
-  friction, phrase-scale drum fractures and disruption), **evolve**, **motif**
+  friction, phrase-scale drum fractures and disruption), **segue** (how
+  pronounced the textural transitions between sections are — the slow filter,
+  reverb-wash and section-bridge swell), **evolve**, **motif**
   and **section** within reach while playing. The sparkle button asks for a
   contextual surprise now.
 - The engine bay adds **link** (voices move together ↔ independently) and
@@ -103,9 +105,17 @@ destination — no channel filtering needed:
 Every voice port also carries CC lanes driven by the modulation engine — map
 them to synth macros and the patch breathes with the piece: **CC 1** tension,
 **CC 11** expression, **CC 20** field probe, **CC 21** LFO 1, **CC 22** random
-walk, **CC 23** activity follower, **CC 25** build envelope, **CC 26** drop
-accent and **CC 74** brightness. The drone port
-adds **CC 24**, a slow triangle swell over each drone span. Melody and bass
+walk, **CC 23** activity follower, and the textural transition lanes — **CC 74**
+filter-sweep (opens gradually with the tension arc, closes through quiet
+passages), **CC 25** section-bridge swell (a slow rise into each section
+boundary), **CC 26** downlift (a gentle fall as a peak dissolves into a
+breakdown) and **CC 27** reverb-wash (swells in the sparse breakdowns and
+intros, pulls back when the mix fills). These are ambient, not EDM — everything
+glides. Map them to a filter cutoff, a pad / reverse-reverb swell, a downlifter
+and a reverb send and the sections breathe into one another. The `segue` macro
+scales how pronounced they are. The drone port adds **CC 24**, a slow triangle
+swell over each drone span.
+Melody and bass
 also emit channel pressure and portamento controls when a generated note
 glides.
 

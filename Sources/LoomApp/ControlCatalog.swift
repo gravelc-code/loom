@@ -102,17 +102,23 @@ enum ControlCatalog {
         case .drums:
             return [
                 presence(voice, "Biases when the kit enters and how fully it remains present."),
+                c(voice, "genre", "character", .choices([
+                    .init(label: "auto", value: 0), .init(label: "Haze", value: 0.2),
+                    .init(label: "Noir", value: 0.4), .init(label: "Snarl", value: 0.6),
+                    .init(label: "Rupture", value: 0.8)]),
+                  "The drum character the kit draws from — Haze (sparse & floating), Noir (dark half-time), Snarl (chopped breaks), Rupture (broken & glitchy).", "Auto chooses one to fit the piece; each is built on real documented grooves and the core stays sparse and supportive."),
                 c(voice, "swing", "swing", .continuous(low: "straight", high: "late offbeats"),
-                  "Delays off-eighths without moving the structural backbeat.", "Half-time adds a small style-specific swing bias."),
+                  "Delays off-eighths without moving the structural backbeat.", "Half-time genres add a small style-specific swing bias."),
                 c(voice, "ghost", "ghosts", .continuous(low: "clean", high: "answered"),
-                  "Introduces quiet side-stick and snare answers around the backbone.", "Ghosts remain subordinate to the main snare."),
-                // The three density lanes, kept together on one row.
-                c(voice, "punch", "skins", .continuous(low: "backbone", high: "driving"),
-                  "How much the kick, snare and clap decorate beyond their fixed backbone.", "The structural kick/snare spine is always present; this adds the optional hits."),
-                c(voice, "density", "hats", .continuous(low: "sparse", high: "busy"),
-                  "Density of the closed and open hats — the timekeeping layer.", "Quarter-note hats hold; this fills in the eighths and sixteenths."),
-                c(voice, "perc", "perc", .continuous(low: "clean", high: "busy"),
-                  "Busyness of the wider percussion — the shaker and top-row one-shots.", "The kit width control chooses which pads; this sets how often they play."),
+                  "Introduces quiet snare answers from the pattern around the backbone.", "Ghosts remain subordinate to the main snare; zero removes them."),
+                // The three density lanes, kept together on one row. Each is
+                // eliminated at zero and barely there at low values.
+                c(voice, "punch", "skins", .continuous(low: "barely there", high: "driving"),
+                  "How present the core kick and snare are.", "Zero removes the drums' core entirely; low keeps a quiet kick and backbeat."),
+                c(voice, "density", "hats", .continuous(low: "barely there", high: "busy"),
+                  "Density of the closed and open hats — the timekeeping layer.", "Zero removes the hats; low leaves a quiet quarter/offbeat pulse before eighths and sixteenths fill in."),
+                c(voice, "perc", "perc", .continuous(low: "barely there", high: "busy"),
+                  "Busyness of the wider percussion — the shaker, rim figures and top-row one-shots.", "Zero silences the percussion/effects lane; the kit width control chooses which pads it may use."),
                 c(voice, "ratchet", "ratchets", .choices([
                     .init(label: "off", value: 0), .init(label: "controlled", value: 0.20), .init(label: "busy", value: 0.65)]),
                   "Chooses how readily hats or snares fracture near fills.", "At most one controlled roll is favored over random retriggering."),

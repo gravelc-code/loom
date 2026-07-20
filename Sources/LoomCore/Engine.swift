@@ -316,6 +316,7 @@ public final class Engine {
     public func generateBar(_ bar: Int) -> BarOutput {
         let sectionBars = evolution.sectionBars
         let cues = evolution.arrangementCues
+        conductor.transitions = evolution.transitions   // scales build/exhale length
         let cond = conductor.state(bar: bar, sectionBars: sectionBars, cues: cues)
         let tensionAt: (Int) -> Double = { [conductor] in
             conductor.state(bar: $0, sectionBars: sectionBars, cues: cues).tension
@@ -578,7 +579,10 @@ public final class Engine {
                                                     || (harmony.barInPhrase == 0 && bar > 0
                                                         && drumPresence >= 0.6),
                                                 friction: evolution.grit,
-                                                styleOverride: evolution.grooveStyle)
+                                                styleOverride: evolution.grooveStyle,
+                                                section: cond.section, event: cond.event,
+                                                buildProgress: cond.buildProgress,
+                                                dialect: harmonyEngine.dialect)
             case .bass:
                 events = BassGenerator.generate(bar: bar, params: p, harmony: harmony,
                                                 subSeed: sub, feel: feel,
@@ -702,9 +706,11 @@ public final class Engine {
                          hadSectionEvent: cond.event != nil || disruption != nil,
                          grit: evolution.grit, seed: masterSeed)
 
-        // Activity follower: smoothed overall density feeds reactive routings
-        // next bar (melody thins when drums intensify).
-        let raw = min(1.0, Double(all.count) / 48.0)
+        // Activity follower: smoothed *tonal* density feeds reactive routings
+        // next bar. Drums are excluded — now that the kit sustains for minutes,
+        // counting it would permanently thin the melodic voices that are meant
+        // to be the foreground over a steady drum bed.
+        let raw = min(1.0, Double(all.filter { $0.voice != .drums }.count) / 36.0)
         smoothedActivity = smoothedActivity * 0.7 + raw * 0.3
 
         // CC lanes: sample the modulation sources across the bar for every
@@ -739,33 +745,59 @@ public final class Engine {
                                         controller: ControlLanes.expressionController,
                                         value: min(127, max(0, Int((expression * 127).rounded()))),
                                         startStep: step))
-                let brightness = min(1, max(0, 0.18 + cond.tension * 0.58
-                    + evolution.grit * 0.24))
+                // Textural transition automation — the ambient toolkit: slow
+                // filter movement, reverb swells and a gentle section-bridge
+                // swell. No EDM riser or impact snaps; everything glides. The
+                // `transitions` macro scales how pronounced these moves are.
+                let sp = step / Double(stepsPerBar)
+                let exB = max(1, conductor.exhaleBars())
+                let depth = evolution.transitions
+                let sectionPhase = (Double(cond.sectionBar) + sp)
+                    / Double(max(1, cond.sectionLength))
+
+                // Filter-sweep — CC 74: opens gradually with the tension arc,
+                // closes through quiet passages. Slow and continuous.
+                let brightness = min(1, max(0,
+                    0.20 + cond.tension * 0.55 + evolution.grit * 0.18))
                 controls.append(CCEvent(voice: voice,
                                         controller: ControlLanes.brightnessController,
                                         value: Int((brightness * 127).rounded()),
                                         startStep: step))
-                let transition: Double
-                switch cond.event {
-                case .build:
-                    let secondBuild = cond.sectionBar >= cond.sectionLength - 2
-                    let lo = secondBuild ? 0.52 : 0.08
-                    let hi = secondBuild ? 1.0 : 0.52
-                    transition = lo + (hi - lo) * step / Double(stepsPerBar)
-                case .vacuum: transition = 1
-                case .drop: transition = 0
-                case .exhale:
-                    transition = max(0, (cond.sectionBar == 0 ? 0.45 : 0.2)
-                        * (1 - step / Double(stepsPerBar)))
-                case nil: transition = 0
-                }
+
+                // Bridge swell — CC 25: a slow rise across the final third of a
+                // section into the boundary (map to a pad / reverse-reverb swell
+                // that carries one section into the next).
+                let swell = (sectionPhase > 0.66
+                    ? smoothstep01((sectionPhase - 0.66) / 0.34) : 0) * (0.4 + 0.6 * depth)
                 controls.append(CCEvent(voice: voice,
                                         controller: ControlLanes.transitionController,
-                                        value: Int((transition * 127).rounded()),
+                                        value: Int((swell * 127).rounded()),
                                         startStep: step))
+
+                // Downlift — CC 26: a gentle fall as a peak dissolves into a
+                // breakdown (map to a downlifter / a filter easing shut).
+                var downlift = 0.0
+                if cond.event == .exhale {
+                    downlift = 0.6 * (1 - Double(cond.sectionBar) / Double(exB))
+                } else if cond.section == .breakdown {
+                    downlift = 0.3 * (1 - cond.tension)
+                }
+                downlift *= (0.4 + 0.6 * depth)
                 controls.append(CCEvent(voice: voice,
                                         controller: ControlLanes.dropAccentController,
-                                        value: cond.event == .drop && k == 0 ? 127 : 0,
+                                        value: Int((min(1, downlift) * 127).rounded()),
+                                        startStep: step))
+
+                // Reverb-wash — CC 27: swells in the sparse, quiet passages
+                // (breakdowns, intros) and pulls back when the mix fills. The
+                // ambient "reverb throw" that glues sections together.
+                var wash = 0.18 + (1 - cond.tension) * 0.5
+                if cond.section == .breakdown || cond.section == .intro { wash += 0.15 }
+                if cond.event == .exhale { wash += 0.15 * (1 - sp) }
+                wash = 0.15 + (min(1, wash) - 0.15) * (0.5 + 0.5 * depth)
+                controls.append(CCEvent(voice: voice,
+                                        controller: ControlLanes.reverbWashController,
+                                        value: min(127, max(0, Int((wash * 127).rounded()))),
                                         startStep: step))
                 for lane in ControlLanes.sourceLanes {
                     let v = modulation.value(lane.source, t: t, voice: voice, link: evolution.link)

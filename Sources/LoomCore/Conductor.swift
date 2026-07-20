@@ -109,6 +109,9 @@ public struct ConductorState: Sendable {
     public let focus: Voice
     /// Arrangement event on this bar, if any.
     public let event: SectionEvent?
+    /// Progress through a build-up, (0,1]; 0 when this bar is not a `.build`.
+    /// One source of truth for the drum rush and the riser/filter automation.
+    public let buildProgress: Double
     /// Upcoming sections for the timeline view: (section, length in bars).
     public let horizon: [(Section, Int)]
 }
@@ -138,12 +141,30 @@ public struct ArrangementPreviewBar: Sendable, Equatable {
 public struct Conductor {
     let seed: UInt64
     public let profile: FormProfile
+    /// The `transitions` macro (0…1): scales the build-up length and the fall
+    /// out of a peak. The Engine sets this from `evolution.transitions` before
+    /// each bar so `baseState` can shape the run-up. 0.5 is the default.
+    public var transitions: Double = 0.5
 
     public init(seed: UInt64) {
         self.seed = seed
         var rng = RNG(seed: hashSeed(seed, 0x464F_524D))
         profile = FormProfile.allCases[rng.pick([0.34, 0.26, 0.22, 0.18])]
     }
+
+    /// How many bars the build-up before a peak occupies. Auto-scales with the
+    /// section length and the `transitions` macro: ~2 (terse) at macro 0, ~4 at
+    /// 0.5, up to ~8 for a long section at 1 — always leaving at least half the
+    /// section un-built plus the final vacuum bar.
+    public func buildBars(len: Int) -> Int {
+        let base = 2.0 + transitions * 6.0                       // 2…8
+        let proportional = Double(len) * (0.15 + transitions * 0.25)
+        let bars = Int(min(base, proportional).rounded())
+        return max(2, min(len / 2, bars))
+    }
+
+    /// How many bars the exhale out of a peak occupies: 2…4, scaled by the macro.
+    public func exhaleBars() -> Int { 2 + Int((transitions * 2).rounded()) }
 
     private func nextSection(after section: Section, rng: inout RNG) -> Section {
         let weights: [Double]
@@ -253,8 +274,24 @@ public struct Conductor {
                              presenceFloor: Double = 0,
                              cues: [ArrangementCue] = []) -> Double {
         let attackPerBar = 0.34         // silence → full kit in ~3 bars
-        let releasePerBar = 0.22        // full → silence in ~4–5 bars
-        func target(_ st: ConductorState) -> Double {
+        // A slow release with a long memory: once the kit is in, brief tension
+        // dips (an early-develop bar, a short breakdown) barely dent it, so a
+        // groove runs for minutes; only a sustained quiet passage (a deep
+        // breakdown) actually fades it out.
+        let releasePerBar = 0.05        // full → silence over ~10–12 quiet bars
+        // Once the kit is established it should run for minutes, not stop at every
+        // breakdown. Ordinary breakdowns hold a drum floor (the groove keeps going
+        // while the other voices thin out); only a rare, seeded *deep* breakdown
+        // fully drops the drums for a real reset.
+        // A held floor keeps the groove alive through the body of the piece; a
+        // low-tension develop dip thins it (no snare below ~0.5) but does not
+        // drop it. The intro stays drum-light and a deep breakdown clears it.
+        let sustain = 0.46
+        func isDeepBreakdown(startBar: Int) -> Bool {
+            var r = RNG(seed: hashSeed(seed, 0x4445_4550, UInt64(max(0, startBar)))) // "DEEP"
+            return r.chance(0.15)
+        }
+        func target(_ st: ConductorState, bar b: Int) -> Double {
             let t = st.tension
             // active[.drums] == false above the 0.15 gate threshold means the
             // section's seeded draw rested the kit (the sit-out check stays
@@ -264,11 +301,17 @@ public struct Conductor {
             let base = sitsOut ? 0 : smoothstep01((t + tensionBias - 0.24) / 0.45)
             let normal = max(base, sitsOut ? presenceFloor * 0.5 : presenceFloor)
             switch st.event {
-            case .build:   return max(0.78, normal)
-            case .drop:    return 1
-            case .vacuum:  return 0
-            case .exhale:  return 0
-            case nil:      return normal
+            case .exhale:
+                return isDeepBreakdown(startBar: b - st.sectionBar) ? 0 : max(normal, sustain)
+            default:
+                // nil (or a user build/vacuum/drop cue) — driven gently by the
+                // section, so the kit lifts and settles rather than cutting out.
+                switch st.section {
+                case .intro:               return normal      // drums enter late
+                case .develop, .peak:       return max(normal, sustain)
+                case .breakdown:
+                    return isDeepBreakdown(startBar: b - st.sectionBar) ? normal : max(normal, sustain)
+                }
             }
         }
 
@@ -276,7 +319,7 @@ public struct Conductor {
         // is independent of the window start in practice, and deterministic
         // always.
         var p = 0.0
-        for b in max(0, bar - 10)...bar {
+        for b in max(0, bar - 16)...bar {
             let st = state(bar: b, sectionBars: sectionBars, cues: cues)
             if st.event == .vacuum {
                 p = 0
@@ -286,7 +329,7 @@ public struct Conductor {
                 p = 1
                 continue
             }
-            p += min(max(target(st) - p, -releasePerBar), attackPerBar)
+            p += min(max(target(st, bar: b) - p, -releasePerBar), attackPerBar)
             p = min(1, max(0, p))
         }
         return p
@@ -321,7 +364,9 @@ public struct Conductor {
                     return ConductorState(section: .develop, sectionBar: phase + 1,
                                           sectionLength: 4, tension: tension,
                                           active: active, focus: .pulse,
-                                          event: event, horizon: underlying.horizon)
+                                          event: event,
+                                          buildProgress: event == .build ? Double(phase + 1) / 2.0 : 0,
+                                          horizon: underlying.horizon)
                 }
                 let landingReal = cue.startBar + 3
                 let mappedLanding = landingReal + offset
@@ -348,7 +393,8 @@ public struct Conductor {
         return ConductorState(section: .peak, sectionBar: 0,
                               sectionLength: base.sectionLength,
                               tension: max(0.94, base.tension), active: active,
-                              focus: base.focus, event: .drop, horizon: base.horizon)
+                              focus: base.focus, event: .drop, buildProgress: 0,
+                              horizon: base.horizon)
     }
 
     private func nextStart(of target: Section, atOrAfter bar: Int,
@@ -374,21 +420,15 @@ public struct Conductor {
         let (section, len) = sched[idx]
         let into = bar - start
         let previousSection: Section? = idx > 0 ? sched[idx - 1].0 : nil
-        let nextSection: Section? = idx + 1 < sched.count ? sched[idx + 1].0 : nil
 
-        // One decision belongs to the target peak and is recomputed from the
-        // same seed in both the preceding develop and the peak itself.
-        let targetPeakIndex = section == .peak ? idx : idx + 1
-        var peakPlanRNG = RNG(seed: hashSeed(seed, 0x4556_4E54,
-                                            UInt64(max(0, targetPeakIndex))))
-        let hasDropPlan = peakPlanRNG.chance(0.85)
+        // Ambient / downtempo transitions are textural and gradual — no EDM
+        // build-up, pre-drop vacuum or slammed drop. The only marked boundary
+        // event is the gentle exhale as a peak dissolves into a breakdown; the
+        // rest is carried by the smooth tension arc, the sustained kit and the
+        // slow filter / reverb-wash automation.
         var event: SectionEvent? = nil
-        if section == .develop, nextSection == .peak, hasDropPlan {
-            if into == len - 1 { event = .vacuum }
-            else if into >= len - 3 { event = .build }
-        } else if section == .peak, into == 0, previousSection == .develop, hasDropPlan {
-            event = .drop
-        } else if section == .breakdown, into < 2, previousSection == .peak {
+        let exBars = exhaleBars()
+        if section == .breakdown, into < exBars, previousSection == .peak {
             event = .exhale
         }
 
@@ -397,14 +437,10 @@ public struct Conductor {
         // Ramp plus a slow deterministic wiggle so tension isn't a straight line.
         let wiggle = ValueNoise(seed: hashSeed(seed, 0x5457)).value(Double(bar) / 6.0) * 0.06
         var tension = min(1, max(0, t0 + (t1 - t0) * phase + wiggle))
-        switch event {
-        case .build:
-            let buildStep = into - (len - 3)
-            tension = max(tension, 0.72 + Double(buildStep) * 0.12)
-        case .vacuum: tension = max(tension, 0.96)
-        case .drop:   tension = max(tension, 0.94)
-        case .exhale: tension = min(tension, into == 0 ? 0.42 : 0.28)
-        case nil: break
+        if event == .exhale {
+            // Decay across the exhale window rather than snapping to quiet.
+            let fall = Double(into) / Double(max(1, exBars))
+            tension = min(tension, 0.44 * (1 - fall) + 0.06)
         }
 
         // Activity gates: which voices play. Seeded per section so entries
@@ -438,20 +474,6 @@ public struct Conductor {
         if section == .intro { active[.drone] = true }
         eligible[.drone] = true
 
-        // Boundary orchestration is explicit. The vacuum retains only a
-        // thread to pull into the landing; the drop itself is collective.
-        switch event {
-        case .vacuum:
-            for voice in Voice.allCases { active[voice] = voice == .drone || voice == .melody }
-        case .drop:
-            for voice in Voice.allCases { active[voice] = true }
-        case .build:
-            active[.drums] = true
-            active[.melody] = true
-            active[.pulse] = true
-        case .exhale, nil:
-            break
-        }
 
         // Focus voice: one foreground element per section, seeded so it is
         // stable for the section's whole span.
@@ -473,6 +495,6 @@ public struct Conductor {
         for i in idx..<min(idx + 4, sched.count) { horizon.append(sched[i]) }
         return ConductorState(section: section, sectionBar: into, sectionLength: len,
                               tension: tension, active: active, focus: focus,
-                              event: event, horizon: horizon)
+                              event: event, buildProgress: 0, horizon: horizon)
     }
 }

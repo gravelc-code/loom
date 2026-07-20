@@ -25,9 +25,14 @@ public struct CCEvent: Sendable, Equatable {
 ///   CC 22 — random walk 2
 ///   CC 23 — activity follower (overall density)
 ///   CC 11 — voice-specific musical expression arc
-///   CC 74 — brightness, driven by tension + grit
-///   CC 25 — arrangement transition envelope (build rises, drop resets)
-///   CC 26 — momentary drop accent
+///   CC 74 — brightness / filter-sweep: opens across a build, snaps wide at the
+///           drop, closes through a breakdown (map to filter cutoff)
+///   CC 25 — riser / transition envelope: rises across the whole build-up, holds
+///           through the vacuum, snaps to 0 at the drop (map to a riser / noise)
+///   CC 26 — impact / downlifter: a falling envelope over the drop and the fall
+///           out of a peak (map to an impact / downlifter FX)
+///   CC 27 — space / reverb-wash: swells into vacuums and breakdowns, pulls back
+///           in dense peaks (map to a reverb send)
 /// The drone port adds one extra lane:
 ///   CC 24 — drone swell (triangle over the drone span, scaled by `swell`)
 public enum ControlLanes {
@@ -36,6 +41,7 @@ public enum ControlLanes {
     public static let swellController = 24
     public static let transitionController = 25
     public static let dropAccentController = 26
+    public static let reverbWashController = 27
     public static let brightnessController = 74
     public static let sourceLanes: [(controller: Int, source: ModSource)] = [
         (20, .field1), (21, .lfo1), (22, .walk2), (23, .follower),

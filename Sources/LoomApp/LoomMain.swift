@@ -125,7 +125,8 @@ func runHeadlessCheck() -> Never {
         switch s.event {
         case .build:
             eventCount += 1
-            if s.section != .develop || s.sectionBar < s.sectionLength - 3
+            let bBars = je.conductor.buildBars(len: s.sectionLength)
+            if s.section != .develop || s.sectionBar < s.sectionLength - 1 - bBars
                 || s.sectionBar >= s.sectionLength - 1 { eventsOK = false }
         case .vacuum:
             eventCount += 1
@@ -135,7 +136,7 @@ func runHeadlessCheck() -> Never {
             if s.section != .peak || s.sectionBar != 0 { eventsOK = false }
         case .exhale:
             eventCount += 1
-            if s.section != .breakdown || s.sectionBar >= 2 { eventsOK = false }
+            if s.section != .breakdown || s.sectionBar >= je.conductor.exhaleBars() { eventsOK = false }
         case nil: break
         }
     }

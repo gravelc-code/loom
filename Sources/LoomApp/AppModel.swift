@@ -81,6 +81,7 @@ final class AppModel: ObservableObject {
     @Published var wander = 0.42 { didSet { push { $0.evolution.wander = self.wander } } }
     @Published var grit = 0.45 { didSet { push { $0.evolution.grit = self.grit } } }
     @Published var performancePush = 0.5 { didSet { push { $0.evolution.push = self.performancePush } } }
+    @Published var transitions = 0.5 { didSet { push { $0.evolution.transitions = self.transitions } } }
     @Published var tempo = 78.0 { didSet { push { $0.tempo = self.tempo } } }
     @Published var clockMode = ClockMode.internalClock {
         didSet { scheduler.setClockMode(clockMode) }
@@ -123,6 +124,7 @@ final class AppModel: ObservableObject {
         engine.evolution.wander = 0.42
         engine.evolution.grit = 0.45
         engine.evolution.push = 0.5
+        engine.evolution.transitions = 0.5
         scheduler = Scheduler(engine: engine, midi: midi, monitor: monitor)
         // The engine seeds its own home key/scale; mirror it into the selectors
         // so the UI opens on the actual home rather than a stale default.
@@ -332,7 +334,8 @@ final class AppModel: ObservableObject {
             sectionLength: sectionLength, link: link, wander: wander,
             grit: grit, push: performancePush,
             grooveStyle: grooveStyle, harmonyDialect: harmonyDialect,
-            arrangementCues: snapshotCues(), clockMode: clockMode)
+            arrangementCues: snapshotCues(), clockMode: clockMode,
+            transitions: transitions)
     }
 
     private func snapshotCues() -> [ArrangementCue] {
@@ -428,6 +431,7 @@ final class AppModel: ObservableObject {
         wander = state.wander
         grit = state.grit
         performancePush = state.push
+        transitions = state.transitions ?? 0.5
         grooveStyle = state.grooveStyle
         harmonyDialect = state.harmonyDialect
         clockMode = state.clockMode ?? .internalClock
