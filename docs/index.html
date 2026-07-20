@@ -125,6 +125,15 @@
   .voice .swatch{width:10px;height:10px;border-radius:2px;background:var(--vc)}
   .voice .port{font-size:11px;color:var(--dim);margin-left:auto}
   .voice p{font-size:12.5px;color:var(--mid);line-height:1.5}
+  .voice img{width:100%;display:block;border-radius:7px;border:1px solid var(--hairline);margin-top:14px}
+
+  /* screenshots */
+  .shots{display:grid;grid-template-columns:1fr;gap:22px}
+  @media(min-width:860px){.shots.two{grid-template-columns:1.4fr 1fr;align-items:start}}
+  .shot{margin:0}
+  .shot img{width:100%;display:block;border-radius:12px;border:1px solid var(--hairline);box-shadow:0 24px 70px rgba(0,0,0,.45)}
+  .shot figcaption{font-size:12px;color:var(--dim);margin-top:12px;line-height:1.5}
+  .shot figcaption b{color:var(--mid);font-weight:600}
 
   /* evolve — a real sequence, so it is numbered */
   .scales{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
@@ -168,6 +177,7 @@
   <span class="brand">loom<span class="dot">.</span></span>
   <nav>
     <a href="#what">what</a>
+    <a href="#surface">surface</a>
     <a href="#voices">voices</a>
     <a href="#evolve">evolution</a>
     <a href="#get">get it</a>
@@ -218,21 +228,41 @@
     </div>
   </section>
 
+  <section class="band" id="surface">
+    <div class="sec-head">
+      <span class="sec-tag">the surface</span>
+      <div>
+        <div class="sec-title">A control surface,<br>not a wall of knobs.</div>
+        <p class="sec-lede">Four stable tiers: transport and three performance macros, the orbit and moving form strip, six voice strips, and one fixed inspector. Continuous parameters are truthful sliders; musical decisions are switches. Press <b>f</b> to fill the screen with the orbit.</p>
+      </div>
+    </div>
+    <div class="shots two">
+      <figure class="shot">
+        <img loading="lazy" src="img/loom-full.png" alt="The loom instrument: an orbit mandala, a moving 32-bar form strip, a piano roll, six voice strips and the selected-voice inspector.">
+        <figcaption><b>The full surface.</b> Orbit, 32-bar form strip, piano roll, six voice strips, and the drums inspector open below.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img loading="lazy" src="img/loom-present.png" alt="Present mode: the orbit fills the window on a dark ground. One revolution is one bar; coloured arcs are the voices.">
+        <figcaption><b>Present mode.</b> One revolution is one bar — bass and melody arc out, the hand is the playhead, the core is the drone.</figcaption>
+      </figure>
+    </div>
+  </section>
+
   <section class="band" id="voices">
     <div class="sec-head">
       <span class="sec-tag">six voices</span>
       <div>
         <div class="sec-title">One MIDI port each.</div>
-        <p class="sec-lede">Every voice streams its own virtual CoreMIDI source, so each takes its own track and its own sound. loom makes the notes; your instruments make the sound.</p>
+        <p class="sec-lede">Every voice streams its own virtual CoreMIDI source, so each takes its own track and its own sound. Select a strip and its inspector opens — continuous controls only where an in-between value has real audible meaning. loom makes the notes; your instruments make the sound.</p>
       </div>
     </div>
     <div class="voices">
-      <div class="voice" style="--vc:var(--drone)"><div class="vname"><span class="swatch"></span>drone<span class="port">loom&nbsp;drone</span></div><p>The sustained foundation: root, fifth and octave held for minutes, re-attacked once per harmonic span.</p></div>
-      <div class="voice" style="--vc:var(--drums)"><div class="vname"><span class="swatch"></span>drums<span class="port">loom&nbsp;drums</span></div><p>A dependable kick-snare-hat pocket on a General MIDI kit, with authored fills and phrase-scale fractures at higher grit.</p></div>
-      <div class="voice" style="--vc:var(--bass)"><div class="vname"><span class="swatch"></span>bass<span class="port">loom&nbsp;bass</span></div><p>Monophonic root-and-movement. States the harmony, then gets out of the way; walks approach tones into each change.</p></div>
-      <div class="voice" style="--vc:var(--chords)"><div class="vname"><span class="swatch"></span>chords<span class="port">loom&nbsp;chords</span></div><p>A voice-led harmonic bed of swells and tied pad attacks, common tones held through the changes.</p></div>
-      <div class="voice" style="--vc:var(--pulse)"><div class="vname"><span class="swatch"></span>pulse<span class="port">loom&nbsp;pulse</span></div><p>Chord-locked rhythmic movement — one held current-chord tone that supplies motion without becoming a second melody.</p></div>
-      <div class="voice" style="--vc:var(--melody)"><div class="vname"><span class="swatch"></span>melody<span class="port">loom&nbsp;melody</span></div><p>A withholding lead that develops motifs — recalling, transposing and inverting earlier phrases — over a drifting phase loop.</p></div>
+      <div class="voice" style="--vc:var(--drone)"><div class="vname"><span class="swatch"></span>drone<span class="port">loom&nbsp;drone</span></div><p>The sustained foundation: root, fifth and octave held for minutes, re-attacked once per harmonic span.</p><img loading="lazy" src="img/pane-drone.png" alt="drone inspector: register, swell, fifth and octave"></div>
+      <div class="voice" style="--vc:var(--drums)"><div class="vname"><span class="swatch"></span>drums<span class="port">loom&nbsp;drums</span></div><p>A dependable kick-snare-hat pocket on a General MIDI kit, with authored fills and phrase-scale fractures at higher grit.</p><img loading="lazy" src="img/pane-drums.png" alt="drums inspector: presence, density, swing, ghosts, ratchets, fills, dynamics"></div>
+      <div class="voice" style="--vc:var(--bass)"><div class="vname"><span class="swatch"></span>bass<span class="port">loom&nbsp;bass</span></div><p>Monophonic root-and-movement. States the harmony, then gets out of the way; walks approach tones into each change.</p><img loading="lazy" src="img/pane-bass.png" alt="bass inspector: presence, density, pitch law, approach, accent, memory"></div>
+      <div class="voice" style="--vc:var(--chords)"><div class="vname"><span class="swatch"></span>chords<span class="port">loom&nbsp;chords</span></div><p>A voice-led harmonic bed of swells and tied pad attacks, common tones held through the changes.</p><img loading="lazy" src="img/pane-chords.png" alt="chords inspector: presence, register, voicing, strum"></div>
+      <div class="voice" style="--vc:var(--pulse)"><div class="vname"><span class="swatch"></span>pulse<span class="port">loom&nbsp;pulse</span></div><p>Chord-locked rhythmic movement — one held current-chord tone that supplies motion without becoming a second melody.</p><img loading="lazy" src="img/pane-pulse.png" alt="pulse inspector: density, gate, division, octave, fracture, dynamics"></div>
+      <div class="voice" style="--vc:var(--melody)"><div class="vname"><span class="swatch"></span>melody<span class="port">loom&nbsp;melody</span></div><p>A withholding lead that develops motifs — recalling, transposing and inverting earlier phrases — over a drifting phase loop.</p><img loading="lazy" src="img/pane-melody.png" alt="melody inspector: note rate, space, register, length, motion, repetition, contour"></div>
     </div>
   </section>
 
