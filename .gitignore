@@ -1,0 +1,33 @@
+# Swift Package Manager build products
+.build/
+.swiftpm/
+Package.resolved
+*.xcodeproj
+DerivedData/
+
+# Local build scratch (kept outside Dropbox for codesigning)
+.cache/
+
+# Compiled app bundle — distributed via GitHub Releases, not committed
+loom.app/
+
+# macOS
+.DS_Store
+*.xcuserstate
+
+# Editor
+*.swp
+.idea/
+
+# AI/agent tooling — never publish these
+CLAUDE.md
+CLAUDE.local.md
+AGENTS.md
+GEMINI.md
+.claude/
+.codex/
+.cursor/
+.cursorrules
+.aider*
+.github/copilot-instructions.md
+.mcp.json

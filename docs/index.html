@@ -1,0 +1,414 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>loom — generative MIDI instrument</title>
+<meta name="description" content="A native macOS generative MIDI instrument. One seed becomes a complete, evolving dark-ambient arrangement — drone, drums, bass, chords, pulse and melody — that never quite repeats.">
+<meta property="og:title" content="loom — generative MIDI instrument">
+<meta property="og:description" content="One seed becomes a complete, evolving arrangement that never quite repeats.">
+<meta property="og:type" content="website">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ground:#0d0d0f; --ground-2:#121216; --panel:#17171c; --panel-2:#1d1d23;
+    --hairline:#2a2a31; --ink:#eceae4; --mid:#9d9a92; --dim:#67655f;
+    --ember:#e0621c; --ember-bright:#f5813a;
+    --drone:#e8873a; --drums:#c2c7d0; --bass:#3d7bf0; --chords:#a670f2; --pulse:#f24384; --melody:#2ec18a;
+    --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{scroll-behavior:smooth}
+  body{
+    background:var(--ground); color:var(--ink); font-family:var(--mono);
+    font-weight:400; line-height:1.5; -webkit-font-smoothing:antialiased;
+    text-rendering:optimizeLegibility; overflow-x:hidden;
+  }
+  a{color:inherit;text-decoration:none}
+  ::selection{background:var(--ember);color:#0d0d0f}
+
+  /* ---- top bar ---- */
+  header{
+    position:fixed;top:0;left:0;right:0;z-index:50;
+    display:flex;align-items:center;gap:22px;
+    padding:14px clamp(16px,4vw,40px);
+    background:rgba(13,13,15,.72);backdrop-filter:blur(12px);
+    border-bottom:1px solid var(--hairline);
+  }
+  .brand{font-weight:800;font-size:16px;letter-spacing:-.04em}
+  .brand .dot{color:var(--ember)}
+  nav{display:flex;gap:20px;margin-left:6px}
+  nav a{font-size:12px;color:var(--mid);transition:color .18s}
+  nav a:hover{color:var(--ink)}
+  header .spacer{flex:1}
+  .ghlink{font-size:12px;color:var(--mid);transition:color .18s}
+  .ghlink:hover{color:var(--ink)}
+  .nav-cta{
+    font-size:12px;font-weight:600;padding:7px 13px;border-radius:6px;
+    border:1px solid var(--ember);color:var(--ember-bright);transition:.18s;
+  }
+  .nav-cta:hover{background:var(--ember);color:#0d0d0f}
+  @media(max-width:680px){nav{display:none}}
+
+  /* ---- hero ---- */
+  .hero{
+    min-height:100svh;display:grid;grid-template-columns:1.05fr .95fr;
+    align-items:center;gap:24px;
+    padding:120px clamp(16px,4vw,40px) 60px;max-width:1240px;margin:0 auto;
+  }
+  .hero-copy{max-width:560px}
+  .eyebrow{
+    display:inline-flex;align-items:center;gap:8px;font-size:11px;letter-spacing:.22em;
+    text-transform:uppercase;color:var(--dim);margin-bottom:22px;
+  }
+  .eyebrow::before{content:"";width:22px;height:1px;background:var(--ember)}
+  h1{
+    font-size:clamp(58px,11vw,132px);font-weight:800;line-height:.86;
+    letter-spacing:-.055em;margin-bottom:26px;
+  }
+  h1 .cursor{color:var(--ember);animation:blink 1.15s steps(1) infinite}
+  @keyframes blink{50%{opacity:0}}
+  .lede{font-size:clamp(15px,1.7vw,18px);color:var(--mid);max-width:44ch;margin-bottom:14px}
+  .lede b{color:var(--ink);font-weight:600}
+  .subline{font-size:12.5px;color:var(--dim);margin-bottom:34px}
+  .btns{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+  .btn{
+    font-family:var(--mono);font-size:13px;font-weight:600;cursor:pointer;
+    padding:13px 20px;border-radius:8px;border:1px solid transparent;transition:.18s;
+  }
+  .btn-primary{background:var(--ember);color:#0d0d0f}
+  .btn-primary:hover{background:var(--ember-bright);transform:translateY(-1px)}
+  .btn-ghost{border-color:var(--hairline);color:var(--ink)}
+  .btn-ghost:hover{border-color:var(--mid);background:var(--panel)}
+  .req{font-size:11px;color:var(--dim);margin-top:16px}
+
+  /* ---- mandala ---- */
+  .stage{display:flex;flex-direction:column;align-items:center;gap:14px}
+  .mandala-wrap{position:relative;width:min(46vw,440px);aspect-ratio:1}
+  @media(max-width:900px){.mandala-wrap{width:min(78vw,380px)}}
+  canvas{width:100%;height:100%;display:block}
+  .readout{
+    display:flex;gap:16px;font-size:11px;color:var(--dim);letter-spacing:.04em;
+  }
+  .readout b{color:var(--mid);font-weight:500}
+  .readout .k{color:var(--ember-bright)}
+  @media(max-width:900px){
+    .hero{grid-template-columns:1fr;text-align:left}
+    .stage{order:-1;margin-bottom:12px}
+  }
+
+  /* ---- sections ---- */
+  section.band{max-width:1180px;margin:0 auto;padding:clamp(60px,10vw,120px) clamp(16px,4vw,40px)}
+  .sec-head{display:flex;align-items:baseline;gap:16px;margin-bottom:46px;flex-wrap:wrap}
+  .sec-tag{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--ember);white-space:nowrap}
+  .sec-title{font-size:clamp(26px,4.4vw,44px);font-weight:700;letter-spacing:-.03em;line-height:1.02}
+  .sec-lede{color:var(--mid);font-size:15px;max-width:60ch;margin-top:8px}
+
+  /* not-a list */
+  .thesis{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:1px;background:var(--hairline);border:1px solid var(--hairline);border-radius:12px;overflow:hidden}
+  .cell{background:var(--ground-2);padding:26px 24px}
+  .cell h3{font-size:14px;font-weight:700;letter-spacing:-.01em;margin-bottom:9px}
+  .cell p{font-size:13px;color:var(--mid);line-height:1.55}
+  .cell .no{font-size:11px;color:var(--dim);margin-bottom:14px;letter-spacing:.1em}
+
+  /* voices */
+  .voices{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+  .voice{
+    background:var(--panel);border:1px solid var(--hairline);border-radius:10px;
+    padding:20px 20px 18px;position:relative;overflow:hidden;transition:.2s;
+  }
+  .voice:hover{border-color:var(--vc);transform:translateY(-2px)}
+  .voice::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--vc)}
+  .voice .vname{display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px;margin-bottom:6px}
+  .voice .swatch{width:10px;height:10px;border-radius:2px;background:var(--vc)}
+  .voice .port{font-size:11px;color:var(--dim);margin-left:auto}
+  .voice p{font-size:12.5px;color:var(--mid);line-height:1.5}
+
+  /* evolve — a real sequence, so it is numbered */
+  .scales{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
+  .scale{border-top:1px solid var(--hairline);padding-top:20px}
+  .scale .idx{font-size:12px;color:var(--ember);font-weight:700;letter-spacing:.1em}
+  .scale h3{font-size:18px;font-weight:700;margin:10px 0 6px}
+  .scale .span{font-size:11px;color:var(--dim);text-transform:uppercase;letter-spacing:.12em;margin-bottom:12px}
+  .scale p{font-size:13px;color:var(--mid);line-height:1.55}
+
+  /* get it */
+  .get{display:grid;grid-template-columns:1fr 1fr;gap:32px;align-items:start}
+  @media(max-width:760px){.get{grid-template-columns:1fr}.hero{padding-top:104px}}
+  .code{
+    background:#0a0a0c;border:1px solid var(--hairline);border-radius:10px;
+    padding:20px;font-size:12.5px;line-height:1.9;color:var(--mid);overflow-x:auto;
+  }
+  .code .p{color:var(--ember-bright);user-select:none}
+  .code .c{color:var(--dim)}
+  .code b{color:var(--ink);font-weight:400}
+  .getcard p{color:var(--mid);font-size:14px;margin-bottom:18px;line-height:1.6}
+  .getcard .req{margin-top:0;margin-bottom:22px}
+  ul.map{list-style:none;font-size:12.5px;color:var(--mid)}
+  ul.map li{padding:8px 0;border-bottom:1px solid var(--hairline);display:flex;gap:12px}
+  ul.map li::before{content:"→";color:var(--ember)}
+
+  footer{
+    border-top:1px solid var(--hairline);padding:36px clamp(16px,4vw,40px);
+    max-width:1180px;margin:0 auto;display:flex;justify-content:space-between;
+    align-items:center;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--dim);
+  }
+  footer a:hover{color:var(--ink)}
+  footer .brand{font-size:13px;color:var(--mid)}
+
+  @media(prefers-reduced-motion:reduce){
+    *{animation:none!important;scroll-behavior:auto}
+  }
+</style>
+</head>
+<body>
+<header>
+  <span class="brand">loom<span class="dot">.</span></span>
+  <nav>
+    <a href="#what">what</a>
+    <a href="#voices">voices</a>
+    <a href="#evolve">evolution</a>
+    <a href="#get">get it</a>
+  </nav>
+  <span class="spacer"></span>
+  <a class="ghlink" href="https://github.com/gravelc-code/loom">github ↗</a>
+  <a class="nav-cta" href="https://github.com/gravelc-code/loom/releases/latest">download</a>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="hero-copy">
+      <span class="eyebrow">generative midi instrument · macos</span>
+      <h1>loom<span class="cursor">_</span></h1>
+      <p class="lede">One seed becomes a <b>complete, evolving arrangement</b> — drone, drums, bass, chords, pulse and melody — that develops over minutes and never quite repeats.</p>
+      <p class="subline">Not a step sequencer. Not a DAW. It generates control, and streams a MIDI port per voice into your own instruments.</p>
+      <div class="btns">
+        <a class="btn btn-primary" href="https://github.com/gravelc-code/loom/releases/latest">Download for macOS</a>
+        <a class="btn btn-ghost" href="https://github.com/gravelc-code/loom">View source</a>
+      </div>
+      <p class="req">Apple Silicon · macOS 14+ · seven virtual CoreMIDI sources · GPL-3.0</p>
+    </div>
+
+    <div class="stage">
+      <div class="mandala-wrap">
+        <canvas id="mandala" width="880" height="880" aria-label="An animated mandala: one revolution is one bar. Concentric bands are the six voices; the sweeping hand is the playhead."></canvas>
+      </div>
+      <div class="readout">
+        <span><b>seed</b> <span class="k" id="r-seed">a1c0ffee</span></span>
+        <span><b>key</b> <span id="r-key">A minor</span></span>
+        <span><b>bar</b> <span id="r-bar">1</span></span>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="what">
+    <div class="sec-head">
+      <span class="sec-tag">the idea</span>
+      <div>
+        <div class="sec-title">Simple rules,<br>deep in the hands.</div>
+        <p class="sec-lede">Complexity lives in three places only: the interaction between simple voices, the controls you hold, and the passage of time. No single mechanism is complicated — the music is.</p>
+      </div>
+    </div>
+    <div class="thesis">
+      <div class="cell"><div class="no">/ 01</div><h3>Deterministic</h3><p>Every note is a pure function of seed and time. Save a seed and you save a whole evolving performance — return to it and it keeps developing the same way.</p></div>
+      <div class="cell"><div class="no">/ 02</div><h3>Constrained</h3><p>A shared harmony engine — key, scale, an advancing progression, voice-leading — keeps every voice in key and vertically coherent, however abstract the surface gets.</p></div>
+      <div class="cell"><div class="no">/ 03</div><h3>Alive</h3><p>A conductor shapes tension over minutes; a watchdog listens for wallpaper and forces a real event when the music has been comfortable for too long.</p></div>
+    </div>
+  </section>
+
+  <section class="band" id="voices">
+    <div class="sec-head">
+      <span class="sec-tag">six voices</span>
+      <div>
+        <div class="sec-title">One MIDI port each.</div>
+        <p class="sec-lede">Every voice streams its own virtual CoreMIDI source, so each takes its own track and its own sound. loom makes the notes; your instruments make the sound.</p>
+      </div>
+    </div>
+    <div class="voices">
+      <div class="voice" style="--vc:var(--drone)"><div class="vname"><span class="swatch"></span>drone<span class="port">loom&nbsp;drone</span></div><p>The sustained foundation: root, fifth and octave held for minutes, re-attacked once per harmonic span.</p></div>
+      <div class="voice" style="--vc:var(--drums)"><div class="vname"><span class="swatch"></span>drums<span class="port">loom&nbsp;drums</span></div><p>A dependable kick-snare-hat pocket on a General MIDI kit, with authored fills and phrase-scale fractures at higher grit.</p></div>
+      <div class="voice" style="--vc:var(--bass)"><div class="vname"><span class="swatch"></span>bass<span class="port">loom&nbsp;bass</span></div><p>Monophonic root-and-movement. States the harmony, then gets out of the way; walks approach tones into each change.</p></div>
+      <div class="voice" style="--vc:var(--chords)"><div class="vname"><span class="swatch"></span>chords<span class="port">loom&nbsp;chords</span></div><p>A voice-led harmonic bed of swells and tied pad attacks, common tones held through the changes.</p></div>
+      <div class="voice" style="--vc:var(--pulse)"><div class="vname"><span class="swatch"></span>pulse<span class="port">loom&nbsp;pulse</span></div><p>Chord-locked rhythmic movement — one held current-chord tone that supplies motion without becoming a second melody.</p></div>
+      <div class="voice" style="--vc:var(--melody)"><div class="vname"><span class="swatch"></span>melody<span class="port">loom&nbsp;melody</span></div><p>A withholding lead that develops motifs — recalling, transposing and inverting earlier phrases — over a drifting phase loop.</p></div>
+    </div>
+  </section>
+
+  <section class="band" id="evolve">
+    <div class="sec-head">
+      <span class="sec-tag">it changes over time</span>
+      <div>
+        <div class="sec-title">Evolution at three timescales.</div>
+        <p class="sec-lede">The failure mode of generative music is a piece where each loop differs slightly but the whole stands still. loom moves at every scale, and gives you knobs over the rate of change itself.</p>
+      </div>
+    </div>
+    <div class="scales">
+      <div class="scale"><div class="idx">01 · micro</div><h3>Per step</h3><div class="span">which hits fire · timing · velocity</div><p>Per-step probability with correlated humanize — micro-timing and dynamics move together from one shared feel, so it reads alive, never broken.</p></div>
+      <div class="scale"><div class="idx">02 · meso</div><h3>Per phrase</h3><div class="span">density · register · harmony</div><p>A modulation matrix of slow LFOs, bounded random walks and a reaction-diffusion field creeps the generator parameters themselves across bars.</p></div>
+      <div class="scale"><div class="idx">03 · macro</div><h3>Per piece</h3><div class="span">arrangement · tension · motifs</div><p>A conductor draws a seeded tension arc over minutes — builds, drops, breakdowns and reprises — so the piece has long-form shape, not a flat wash.</p></div>
+    </div>
+  </section>
+
+  <section class="band" id="get">
+    <div class="sec-head">
+      <span class="sec-tag">get it</span>
+      <div class="sec-title">Run it in two minutes.</div>
+    </div>
+    <div class="get">
+      <div class="getcard">
+        <p>Download the app, enable the speaker to hear a sketch immediately, then route the six sources into your DAW — one track per voice, a big dark pad on drone, a drum rack on drums.</p>
+        <p class="req">Apple Silicon · macOS 14+</p>
+        <a class="btn btn-primary" href="https://github.com/gravelc-code/loom/releases/latest">Download loom.app</a>
+        <ul class="map" style="margin-top:26px">
+          <li><b>space</b> — play · <b>⏮</b> — rewind to bar 1</li>
+          <li><b>die</b> — a new seeded piece · <b>lock</b> — freeze a voice while the rest evolves</li>
+          <li><b>f</b> — present: fill the window with the orbit</li>
+        </ul>
+      </div>
+      <div>
+        <p style="color:var(--mid);font-size:14px;margin-bottom:14px">Or build from source:</p>
+        <div class="code">
+<span class="c"># requires a full Xcode install (SwiftUI macros)</span><br>
+<span class="p">$</span> git clone https://github.com/gravelc-code/loom<br>
+<span class="p">$</span> cd loom<br>
+<span class="p">$</span> swift run <b>LoomApp</b><br>
+<br>
+<span class="c"># headless determinism + musicality gate</span><br>
+<span class="p">$</span> swift run LoomApp <b>--check</b><br>
+<br>
+<span class="c"># render a deterministic 128-bar .mid</span><br>
+<span class="c"># from the app's utility menu</span>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span class="brand">loom<span style="color:var(--ember)">.</span> — generative midi instrument</span>
+  <span>
+    <a href="https://github.com/gravelc-code/loom">source</a> ·
+    <a href="https://github.com/gravelc-code/loom/releases/latest">releases</a> ·
+    <a href="https://github.com/gravelc-code/loom/blob/main/LICENSE">GPL-3.0</a>
+  </span>
+</footer>
+
+<script>
+(function(){
+  const cv = document.getElementById('mandala');
+  const ctx = cv.getContext('2d');
+  const DPR = Math.min(2, window.devicePixelRatio || 1);
+  function fit(){
+    const s = cv.clientWidth * DPR;
+    cv.width = s; cv.height = s;
+  }
+  // Voice colors (dark-mode variants)
+  const V = {
+    drone:'#e8873a', drums:'#c2c7d0', bass:'#3d7bf0',
+    chords:'#a670f2', pulse:'#f24384', melody:'#2ec18a'
+  };
+  // Deterministic tiny PRNG so the "score" is stable per bar.
+  function rng(seed){ let s = seed>>>0; return ()=>{ s=(s*1664525+1013904223)>>>0; return s/4294967296; }; }
+  const bands = [
+    {v:'bass',   inner:.46, outer:.57},
+    {v:'chords', inner:.59, outer:.70},
+    {v:'pulse',  inner:.72, outer:.82},
+    {v:'melody', inner:.84, outer:.95},
+  ];
+  // Build one bar's worth of arc events, deterministically from a bar number.
+  function scoreFor(bar){
+    const r = rng(0xA1C0FFEE ^ (bar*2654435761));
+    const evs = [];
+    for(const b of bands){
+      const n = 1 + Math.floor(r()*4);
+      for(let i=0;i<n;i++){
+        const start = Math.floor(r()*16);
+        const len = 1 + Math.floor(r()*3);
+        const rad = b.inner + r()*(b.outer-b.inner);
+        const vel = .35 + r()*.6;
+        evs.push({v:b.v, start, len, rad, vel});
+      }
+    }
+    return evs;
+  }
+  const BAR_MS = 4200;              // one revolution
+  let start = performance.now();
+  const barEl = document.getElementById('r-bar');
+
+  function draw(now){
+    const t = (now - start);
+    const barFloat = t / BAR_MS;
+    const bar = Math.floor(barFloat);
+    const phase = barFloat - bar;    // 0..1 within the bar
+    const S = cv.width, c = S/2, R = S*0.46;
+    ctx.clearRect(0,0,S,S);
+
+    // faint plate glow
+    const g = ctx.createRadialGradient(c,c,0,c,c,R*1.1);
+    g.addColorStop(0,'rgba(224,98,28,0.06)'); g.addColorStop(1,'rgba(224,98,28,0)');
+    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(c,c,R*1.1,0,7); ctx.fill();
+
+    // outer ring + 16 ticks
+    ctx.strokeStyle='rgba(157,154,146,0.28)'; ctx.lineWidth=DPR;
+    ctx.beginPath(); ctx.arc(c,c,R,0,Math.PI*2); ctx.stroke();
+    for(let s=0;s<16;s++){
+      const a = -Math.PI/2 + s/16*Math.PI*2;
+      const beat = s%4===0;
+      const ri = R-(beat?12*DPR:7*DPR);
+      ctx.strokeStyle = beat?'rgba(157,154,146,0.5)':'rgba(157,154,146,0.25)';
+      ctx.lineWidth = beat?1.6*DPR:DPR;
+      ctx.beginPath();
+      ctx.moveTo(c+Math.cos(a)*ri, c+Math.sin(a)*ri);
+      ctx.lineTo(c+Math.cos(a)*R,  c+Math.sin(a)*R);
+      ctx.stroke();
+    }
+
+    // drone core — breathes with a slow sine
+    const breath = 1 + 0.06*Math.sin(now/900);
+    ctx.fillStyle='rgba(232,135,58,0.14)';
+    ctx.beginPath(); ctx.arc(c,c,R*0.16*breath,0,7); ctx.fill();
+    ctx.fillStyle=V.drone;
+    ctx.beginPath(); ctx.arc(c,c,R*0.055*breath,0,7); ctx.fill();
+
+    // arc bands for the current bar; notes glow as the hand passes
+    const evs = scoreFor(bar);
+    for(const e of evs){
+      const a0 = -Math.PI/2 + (e.start/16)*Math.PI*2;
+      const a1 = -Math.PI/2 + ((e.start+e.len)/16)*Math.PI*2;
+      const rr = R*e.rad;
+      const passed = phase*16 >= e.start;
+      const justHit = phase*16 >= e.start && phase*16 < e.start+0.6;
+      ctx.strokeStyle = V[e.v];
+      ctx.globalAlpha = passed ? (0.25 + e.vel*0.7) : 0.12;
+      ctx.lineWidth = (2 + e.vel*7) * DPR;
+      ctx.lineCap='round';
+      ctx.beginPath(); ctx.arc(c,c,rr,a0,a1); ctx.stroke();
+      if(justHit){
+        ctx.globalAlpha=0.5; ctx.lineWidth=(6+e.vel*10)*DPR;
+        ctx.beginPath(); ctx.arc(c,c,rr,a0,a1); ctx.stroke();
+      }
+    }
+    ctx.globalAlpha=1; ctx.lineCap='butt';
+
+    // sweeping hand (playhead)
+    const ha = -Math.PI/2 + phase*Math.PI*2;
+    ctx.strokeStyle=V.drone; ctx.lineWidth=1.6*DPR;
+    ctx.beginPath(); ctx.moveTo(c,c);
+    ctx.lineTo(c+Math.cos(ha)*R, c+Math.sin(ha)*R); ctx.stroke();
+    ctx.fillStyle=V.drone;
+    ctx.beginPath(); ctx.arc(c+Math.cos(ha)*R, c+Math.sin(ha)*R, 4*DPR,0,7); ctx.fill();
+
+    if(barEl) barEl.textContent = (bar%64)+1;
+    requestAnimationFrame(draw);
+  }
+
+  const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function boot(){ fit(); if(reduce){ draw(performance.now()); } else { requestAnimationFrame(draw); } }
+  window.addEventListener('resize', fit);
+  boot();
+})();
+</script>
+</body>
+</html>
