@@ -8,8 +8,9 @@ DerivedData/
 # Local build scratch (kept outside Dropbox for codesigning)
 .cache/
 
-# Compiled app bundle — distributed via GitHub Releases, not committed
+# Compiled app bundle + release zip — distributed via GitHub Releases, not committed
 loom.app/
+loom-*.zip
 
 # macOS
 .DS_Store
