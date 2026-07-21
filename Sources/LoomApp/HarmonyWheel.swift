@@ -12,6 +12,10 @@ import LoomCore
 struct HarmonyWheel: View {
     @ObservedObject var model: AppModel
 
+    /// Smooth display clock, shared timing model with the orbit, so the live
+    /// voice ticks land in step with the hand sweeping the mandala.
+    @State private var clock = MotionClock()
+
     /// Pitch-class spelling chosen to read well on the wheel (flats on the
     /// flat side, sharps on the sharp side).
     private static let pcName = ["C", "D♭", "D", "E♭", "E", "F",
@@ -37,7 +41,7 @@ struct HarmonyWheel: View {
                 .font(Theme.monoSmall).foregroundColor(Theme.mid)
                 .lineLimit(1)
         }
-        .tip("circle of fifths. shaded arc: the sounding key's scale. lit dots: the current chord's notes. accent marker: the tonic. a ghost ring marks home key when the piece has modulated away.")
+        .tip("circle of fifths. shaded arc: the sounding key's scale. lit dots: the current chord's notes. accent marker: the tonic. inner colored ticks: where bass, chords, pulse and melody are sounding right now. a ghost ring marks home key when the piece has modulated away.")
     }
 
     // MARK: - drawing
@@ -116,6 +120,44 @@ struct HarmonyWheel: View {
                         .font(.system(size: 8, weight: isTonic ? .bold : .regular, design: .monospaced))
                         .foregroundColor(isTonic ? Theme.accent : (isScale ? Theme.text : Theme.dim)),
                      at: lp)
+        }
+
+        // Live voice positions: a colored tick for wherever bass, chords,
+        // pulse and melody are sounding this instant, set just inside the ring
+        // so the wheel shows the voices moving around the frame — not only the
+        // drone-shared root and fifth. Timed by the same smooth clock as the
+        // orbit; a pure readout of the roll, so determinism is untouched.
+        let displayed = clock.advance(
+            playing: model.playing,
+            polledBar: model.playhead.bar, polledPhase: model.playhead.phase,
+            anchor: model.playheadAnchor, barDuration: model.barDuration,
+            now: date)
+        let steps = displayed * 16.0
+        let phBar = model.playhead.bar
+        let voiceSlot: [Voice: CGFloat] = [.bass: 4, .chords: 8, .pulse: 12, .melody: 16]
+        var ticks: [(pos: CGPoint, col: Color)] = []
+        for entry in model.roll where entry.bar >= phBar - 1 && entry.bar <= phBar + 1 {
+            for n in entry.notes {
+                guard let slot = voiceSlot[n.voice] else { continue }   // pitched voices only
+                let delta = steps - (Double(entry.bar) * 16 + n.startStep)
+                guard delta >= 0, delta <= max(0.5, n.durationSteps) else { continue }
+                ticks.append((point(c, R - slot, angle(Self.index(ofPC: Self.norm(n.note)))),
+                              Theme.voiceColor(n.voice)))
+            }
+        }
+        // Three passes so overlapping voices stay legible: breathing glows
+        // underneath, a ground-colored moat around each, then the bold ticks.
+        for tk in ticks {
+            ctx.fill(Path(ellipseIn: CGRect(x: tk.pos.x - 4, y: tk.pos.y - 4, width: 8, height: 8)),
+                     with: .color(tk.col.opacity(0.30 * pulse)))
+        }
+        for tk in ticks {
+            ctx.fill(Path(ellipseIn: CGRect(x: tk.pos.x - 3, y: tk.pos.y - 3, width: 6, height: 6)),
+                     with: .color(Theme.weaveGround))
+        }
+        for tk in ticks {
+            ctx.fill(Path(ellipseIn: CGRect(x: tk.pos.x - 2.3, y: tk.pos.y - 2.3, width: 4.6, height: 4.6)),
+                     with: .color(tk.col))
         }
 
         // Center: the sounding key.
