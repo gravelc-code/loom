@@ -42,6 +42,15 @@ public struct EngineSnapshot: Sendable {
     public var cadenceLabel: String = ""
     public var focus: Voice = .melody
     public var pool: [Int] = []
+    /// Numeric harmony for the wheel display — derived, non-authoritative
+    /// (never fed back into generation, so no determinism impact).
+    public var keyRoot: Int = 0
+    public var keyScale: Scale = .minor
+    public var homeKeyRoot: Int = 0
+    public var homeScale: Scale = .minor
+    public var chordPCs: [Int] = []
+    public var nextChordPCs: [Int] = []
+    public var scaleMask: [Bool] = Array(repeating: false, count: 12)
     /// Key-journey region index — the movement number.
     public var movement: Int = 0
     /// Arrangement event this bar ("drop"/"exhale"), empty otherwise.
@@ -841,6 +850,13 @@ public final class Engine {
             profileSeed: materialSeed(for: .drums, movement: harmony.regionIndex),
             override: evolution.grooveStyle).rawValue
         snap.movement = harmony.regionIndex
+        snap.keyRoot = harmony.key
+        snap.keyScale = harmony.scale
+        snap.homeKeyRoot = harmonyEngine.key
+        snap.homeScale = harmonyEngine.scale
+        snap.chordPCs = harmony.chord.pitchClasses
+        snap.nextChordPCs = harmony.nextChord.pitchClasses
+        snap.scaleMask = harmony.scaleMask
         snap.isChordChangeBar = harmony.isChordChangeBar
         snap.phraseLabel = harmony.phraseName
         snap.phraseBar = harmony.barInPhrase

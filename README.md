@@ -1,5 +1,10 @@
 # loom
 
+**Update — July 2026:** loom now shows a live **harmony wheel** beneath the
+orbit — a circle of fifths that shades the sounding key's scale, lights the
+current chord's tones, marks the tonic and ghost-marks the home key as the
+piece journeys between keys. The tonal map to go with the orbit's rhythmic one.
+
 Native macOS generative MIDI instrument with a dark-ambient core. A sustained
 drone anchors everything; slow, incommensurate loops drift over a curated
 harmonic dialect; chords swell with common tones tied through the changes;
@@ -83,6 +88,9 @@ swift run --scratch-path ~/.cache/loom-build LoomApp --check
   grammar, so the arrangement changes without becoming random.
 - The piano roll identifies every MIDI port with both a high-separation color
   and a distinct note shape. Its legend selects the matching voice inspector.
+- Beneath the orbit, a **harmony wheel** (circle of fifths) shades the sounding
+  key's scale, lights the current chord's tones and ghost-marks the home key,
+  so the seed's key journeys are legible at a glance.
 - The reaction-diffusion **field** remains available behind the workbench's
   field button rather than permanently consuming the main surface.
 

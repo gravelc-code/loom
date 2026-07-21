@@ -269,6 +269,14 @@ struct ContentView: View {
                         Text("bar \(model.snapshot.bar + 1)").font(Theme.monoSmall).foregroundColor(Theme.mid)
                     }
                     OrbitView(model: model, side: 192)
+                    HStack {
+                        Text("harmony").font(Theme.bayTitle).foregroundColor(Theme.dim)
+                        Spacer()
+                        Text(model.snapshot.dialectLabel).font(Theme.monoSmall).foregroundColor(Theme.mid)
+                    }
+                    .padding(.top, 4)
+                    HarmonyWheel(model: model)
+                    Spacer(minLength: 0)
                 }
                 .padding(9).frame(width: 216)
 
