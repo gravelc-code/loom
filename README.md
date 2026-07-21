@@ -19,10 +19,9 @@ monitor makes it possible to hear a sketch immediately. See
 
 ## Download
 
-A signed-for-local-use `loom.app` (Apple Silicon, macOS 14+) is attached to the
-[latest release](https://github.com/gravelc-code/loom/releases/latest). It is
-ad-hoc signed, so on first launch right-click the app and choose **Open** (or run
-`xattr -dr com.apple.quarantine loom.app`). To build from source instead, see below.
+A signed and notarized `loom.app` (Apple Silicon, macOS 14+) is attached to the
+[latest release](https://github.com/gravelc-code/loom/releases/latest). Download,
+unzip and open — no Gatekeeper prompts. To build from source instead, see below.
 
 ## Build & run
 
