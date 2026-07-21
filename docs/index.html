@@ -147,7 +147,9 @@
   .plabel{display:flex;align-items:center;gap:10px;font-weight:700;font-size:16px;margin-bottom:13px;letter-spacing:-.01em}
   .plabel .swatch{width:12px;height:12px;border-radius:2px;background:var(--vc)}
   .plabel .pdesc{color:var(--mid);font-weight:400;font-size:13px;margin-left:4px}
-  .pane img{width:100%;display:block;border-radius:9px;border:1px solid var(--hairline);box-shadow:0 18px 50px rgba(0,0,0,.4)}
+  /* panes carry their own rounded corners (transparent), so no CSS rounding or
+     rectangular border — a drop-shadow follows the rounded shape cleanly. */
+  .pane img{width:100%;display:block;filter:drop-shadow(0 16px 34px rgba(0,0,0,.46))}
 
   /* evolve — a real sequence, so it is numbered */
   .scales{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px}
