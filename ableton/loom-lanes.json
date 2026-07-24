@@ -1,0 +1,29 @@
+{
+  "$comment": "Canonical loom CC automation lane map. SOURCE OF TRUTH: Sources/LoomCore/Control.swift (ControlLanes). Every musical voice port carries the global + per-voice lanes; CC24 rides the drone port only. Values are 7-bit 0-127, sampled 8x per bar; the transport sends only changed values. The loom.amxd device slews these into smooth modulation.",
+  "version": 1,
+  "resolution": { "bits": 7, "samplesPerBar": 8 },
+  "globalLanes": [
+    { "cc": 1,  "id": "tension",    "label": "Tension",  "polarity": "unipolar", "desc": "Global conductor arc — the piece's tension over minutes.", "suggestedTarget": "master filter / overall intensity" },
+    { "cc": 74, "id": "brightness", "label": "Filter",   "polarity": "unipolar", "desc": "Brightness / filter-sweep: opens across a build, snaps wide at the drop, closes through a breakdown.", "suggestedTarget": "filter cutoff" },
+    { "cc": 25, "id": "build",      "label": "Build",    "polarity": "unipolar", "desc": "Riser / transition envelope: rises across the whole build, holds through the vacuum, snaps to 0 at the drop.", "suggestedTarget": "riser / noise sweep" },
+    { "cc": 26, "id": "drop",       "label": "Drop",     "polarity": "unipolar", "desc": "Impact / downlifter: a falling envelope over the drop and the fall out of a peak.", "suggestedTarget": "impact / downlifter FX" },
+    { "cc": 27, "id": "space",      "label": "Space",    "polarity": "unipolar", "desc": "Reverb-wash: swells into vacuums and breakdowns, pulls back in dense peaks.", "suggestedTarget": "reverb send" },
+    { "cc": 20, "id": "field",      "label": "Field",    "polarity": "bipolar",  "desc": "Reaction-diffusion texture probe (centered ~64).", "suggestedTarget": "any slow texture mod" },
+    { "cc": 21, "id": "lfo",        "label": "LFO",      "polarity": "bipolar",  "desc": "LFO 1 (centered ~64).", "suggestedTarget": "any periodic mod" },
+    { "cc": 22, "id": "walk",       "label": "Walk",     "polarity": "bipolar",  "desc": "Random walk 2 (centered ~64).", "suggestedTarget": "any drifting mod" },
+    { "cc": 23, "id": "activity",   "label": "Activity", "polarity": "bipolar",  "desc": "Activity follower — overall density (centered ~64).", "suggestedTarget": "reverb/delay mix, dynamics" }
+  ],
+  "perVoiceLanes": [
+    { "cc": 11, "id": "expression", "label": "Expression", "polarity": "unipolar", "desc": "Voice-specific musical expression arc — differs per port.", "suggestedTarget": "volume / a synth macro" }
+  ],
+  "droneOnlyLanes": [
+    { "cc": 24, "id": "swell", "label": "Drone swell", "polarity": "unipolar", "port": "loom drone", "desc": "Triangle over the whole drone span, scaled by the drone `swell` param.", "suggestedTarget": "filter / timbre / send level" }
+  ],
+  "expressive": [
+    { "type": "cc", "cc": 5,  "id": "portamentoTime",  "voices": ["melody", "bass"], "desc": "Portamento time (value 38) on glide notes." },
+    { "type": "cc", "cc": 65, "id": "portamentoOnOff", "voices": ["melody", "bass"], "desc": "Portamento on (127) at note-on, off (0) at note-off." },
+    { "type": "channelPressure", "id": "pressure", "voices": ["melody", "bass"], "desc": "Channel pressure / aftertouch on glide notes." }
+  ],
+  "ports": ["loom drone", "loom drums", "loom bass", "loom chords", "loom pulse", "loom melody", "loom clock"],
+  "clockInput": "loom sync in"
+}
