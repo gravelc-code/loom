@@ -94,6 +94,9 @@ public struct BarOutput {
 public final class Engine {
     public private(set) var masterSeed: UInt64
     public private(set) var subSeeds: [Voice: UInt64] = [:]
+    public private(set) var compositionVersion: CompositionModelVersion
+    var pieceIdentity: PieceIdentity?
+    var themeBlueprint: ThemeBlueprint?
 
     public var tempo: Double = 84
     public var params: [Voice: ParamSet] = [:]
@@ -124,8 +127,10 @@ public final class Engine {
     /// reset by rewind(). Output-only — it never feeds harmony or the conductor.
     var ringingTails: [(note: Int, end: Double, sustained: Bool)] = []
 
-    public init(seed: UInt64) {
+    public init(seed: UInt64,
+                compositionVersion: CompositionModelVersion = .persistentThemes) {
         masterSeed = seed
+        self.compositionVersion = compositionVersion
         let home = HarmonyEngine.seededHome(seed: seed)
         harmonyEngine = HarmonyEngine(key: home.key, scale: home.scale, seed: seed)
         conductor = Conductor(seed: seed)
@@ -135,6 +140,7 @@ public final class Engine {
             subSeeds[v] = hashSeed(seed, UInt64(Voice.allCases.firstIndex(of: v)!) &+ 0xB0)
             feels[v] = Feel(seed: seed, voice: v)
         }
+        rebuildPieceTheme()
     }
 
     /// Rewind to bar 0: reset the sequential state (field, motif memory,
@@ -196,8 +202,10 @@ public final class Engine {
 
     /// Start over with a new master seed: new progression, new modulation
     /// character, new sub-seeds. Keeps user params and evolution controls.
-    public func reseed(_ seed: UInt64) {
+    public func reseed(_ seed: UInt64,
+                       compositionVersion: CompositionModelVersion = .persistentThemes) {
         masterSeed = seed
+        self.compositionVersion = compositionVersion
         let dialectOverride = harmonyEngine.dialectOverride
         // A new seed is a new piece with a new home key/scale. The UI pulls the
         // new home back via refreshFromEngine; a loaded performance re-imposes
@@ -211,7 +219,21 @@ public final class Engine {
             subSeeds[v] = hashSeed(seed, UInt64(Voice.allCases.firstIndex(of: v)!) &+ 0xB0)
             feels[v] = Feel(seed: seed, voice: v)
         }
+        rebuildPieceTheme()
         rewind()
+    }
+
+    private func rebuildPieceTheme() {
+        guard compositionVersion == .persistentThemes,
+              let melodySeed = subSeeds[.melody] else {
+            pieceIdentity = nil
+            themeBlueprint = nil
+            return
+        }
+        let identity = PieceIdentity(masterSeed: masterSeed, melodySeed: melodySeed)
+        pieceIdentity = identity
+        themeBlueprint = ThemeBlueprint(masterSeed: masterSeed, melodySeed: melodySeed,
+                                        identity: identity)
     }
 
     /// Add a persisted, absolute-bar cue. A new cue replaces any future cue
@@ -481,6 +503,9 @@ public final class Engine {
                                        tension: droneStartCond.tension,
                                        focus: droneStartCond.focus, drumPresence: nil,
                                        tensionBias: amountBias(.drone))
+        let scheduledTheme = themeBlueprint?.plan(for: harmony)
+        let ensembleTheme = themeBlueprint?.activeOrPreviousCell(for: harmony)
+        let themeEchoVoice = pieceIdentity?.echoVoice(barInPair: harmony.barInPhrasePair)
         let ensemble = EnsembleContext(
             anchors: sk.anchors, gaps: sk.gaps, focus: cond.focus, speaking: sk.speaking,
             prevMelodyGesture: prevMelodyGesture, motifCell: motifMemory.cells.last,
@@ -491,7 +516,8 @@ public final class Engine {
             droneRootPC: droneSpan.rootPC,
             droneNotes: DroneGenerator.notes(span: droneSpan, params: droneEff),
             ringingLoopNotes: loopRing(atBar: bar),
-            prevChordRinging: loopRing(atBar: prevChordStart))
+            prevChordRinging: loopRing(atBar: prevChordStart),
+            themeCell: ensembleTheme, themeEchoVoice: themeEchoVoice)
 
         // Movement boundary: a new journey region retires the oldest motifs
         // so the new key gets fresh material.
@@ -603,13 +629,23 @@ public final class Engine {
                                                  subSeed: sub, feel: feel,
                                                  tension: cond.tension, ensemble: ensemble)
             case .melody:
-                events = MelodyGenerator.generate(bar: bar, params: p, harmony: harmony,
-                                                  subSeed: sub,
-                                                  bankSeed: materialSeed(for: .melody,
-                                                                         movement: harmony.regionIndex),
-                                                  feel: feel, memory: motifMemory,
-                                                  recurrence: evolution.motifRecurrence,
-                                                  tension: cond.tension, ensemble: ensemble)
+                if compositionVersion == .persistentThemes {
+                    events = MelodyGenerator.generate(
+                        bar: bar, params: p, harmony: harmony, subSeed: sub,
+                        bankSeed: materialSeed(for: .melody, movement: harmony.regionIndex),
+                        feel: feel, memory: motifMemory,
+                        recurrence: evolution.motifRecurrence,
+                        tension: cond.tension, ensemble: ensemble,
+                        scheduledTheme: scheduledTheme, persistentThemes: true)
+                } else {
+                    events = MelodyGenerator.generate(bar: bar, params: p, harmony: harmony,
+                                                      subSeed: sub,
+                                                      bankSeed: materialSeed(for: .melody,
+                                                                             movement: harmony.regionIndex),
+                                                      feel: feel, memory: motifMemory,
+                                                      recurrence: evolution.motifRecurrence,
+                                                      tension: cond.tension, ensemble: ensemble)
+                }
             case .drone:
                 events = DroneGenerator.generate(bar: bar, params: p, span: droneSpan,
                                                  tension: cond.tension)

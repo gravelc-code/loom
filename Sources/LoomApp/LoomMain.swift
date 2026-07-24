@@ -182,6 +182,8 @@ func runHeadlessCheck() -> Never {
         let encoded = try JSONEncoder().encode(artifactState)
         let decoded = try JSONDecoder().decode(PerformanceState.self, from: encoded)
         let identityOK = decoded.seed == artifactState.seed
+            && decoded.version == 4
+            && decoded.compositionModel == .persistentThemes
         let parametersOK = decoded.params == artifactState.params
         let gritOK = decoded.grit == artifactState.grit
         let mutesOK = decoded.muted == artifactState.muted
@@ -192,7 +194,8 @@ func runHeadlessCheck() -> Never {
         // Simulate a version-1 file by removing every added top-level key.
         var legacy = try JSONSerialization.jsonObject(with: encoded) as! [String: Any]
         legacy["version"] = 1
-        for key in ["grooveStyle", "harmonyDialect", "arrangementCues", "clockMode"] {
+        for key in ["compositionModel", "grooveStyle", "harmonyDialect",
+                    "arrangementCues", "clockMode"] {
             legacy.removeValue(forKey: key)
         }
         let legacyData = try JSONSerialization.data(withJSONObject: legacy)
@@ -201,6 +204,15 @@ func runHeadlessCheck() -> Never {
             && legacyState.harmonyDialect == nil
             && legacyState.arrangementCues == nil
             && legacyState.clockMode == nil
+            && legacyState.compositionModel == .legacy
+
+        // Re-saving an old performance may use today's container version,
+        // but its explicit composition model must keep every exported note.
+        var resavedLegacy = legacyState
+        resavedLegacy.version = 4
+        let legacyReplayOK = resavedLegacy.compositionModel == .legacy
+            && MIDIFileExporter.render(legacyState, bars: 16)
+                == MIDIFileExporter.render(resavedLegacy, bars: 16)
 
         // Version-2 register migration: the former coarse octave + fine
         // register pair becomes one truthful continuous control, and retired
@@ -225,8 +237,11 @@ func runHeadlessCheck() -> Never {
             && migrated.params[.chords]?.values["length"] == nil
             && migrated.params[.melody]?.values["register"] != nil
             && migrated.params[.melody]?.values["octave"] == nil
+            && migrated.compositionVersion == .legacy
+        let v4ReplayOK = MIDIFileExporter.render(artifactState, bars: 16)
+            == MIDIFileExporter.render(decoded, bars: 16)
         let persistenceOK = identityOK && parametersOK && gritOK && mutesOK
-            && directionOK && legacyOK && migrationOK
+            && directionOK && legacyOK && legacyReplayOK && migrationOK && v4ReplayOK
         print(persistenceOK ? "performance file: OK (JSON round-trip)"
                             : "performance file: FAILED (round-trip mismatch)")
         ok = ok && persistenceOK

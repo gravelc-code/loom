@@ -43,6 +43,11 @@ public struct PulseGenerator {
             var chance = 0.08 + density * 0.62 + tension * 0.12
             if ensemble.anchors.contains(step) { chance += 0.12 }
             if step % 4 == 2 { chance += 0.08 }
+            let themeMatch = ensemble.themeEchoVoice == .pulse
+                && ensemble.themeCell?.notes.contains(where: {
+                    abs(Int($0.step.rounded()) - step) <= max(1, gridStride / 2)
+                }) == true
+            if themeMatch { chance = max(chance + 0.18, 0.76) }
             if event == .drop && step == 0 { chance = 1 }
             guard rng.chance(min(0.94, chance)) else { continue }
 
@@ -50,6 +55,7 @@ public struct PulseGenerator {
             let duration = max(0.25, min(Double(nextStep - step) * 0.82,
                                          0.2 + gate * Double(gridStride) * 0.9))
             var velocity = (43 + tension * 28) * Dynamics.scaled(metric, amount: dynamics)
+            if themeMatch { velocity += 7 }
             if event == .drop && step == 0 { velocity += 18 }
             var e = NoteEvent(voice: .pulse, note: note,
                               velocity: Int(min(112, max(20, velocity))),

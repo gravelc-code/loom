@@ -325,6 +325,7 @@ final class AppModel: ObservableObject {
             Dictionary(uniqueKeysWithValues: Voice.allCases.map { ($0.rawValue, source[$0] ?? false) })
         }
         return PerformanceState(
+            compositionModel: snapshotCompositionVersion(),
             name: name, seed: seed, tempo: tempo, key: key, scale: scaleChoice,
             params: Dictionary(uniqueKeysWithValues: Voice.allCases.map {
                 ($0.rawValue, baseParams[$0] ?? Defaults.params(for: $0).values)
@@ -342,6 +343,12 @@ final class AppModel: ObservableObject {
         var cues: [ArrangementCue] = []
         scheduler.withEngine { cues = $0.evolution.arrangementCues }
         return cues
+    }
+
+    private func snapshotCompositionVersion() -> CompositionModelVersion {
+        var version = CompositionModelVersion.persistentThemes
+        scheduler.withEngine { version = $0.compositionVersion }
+        return version
     }
 
     func captureA() {

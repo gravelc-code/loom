@@ -62,7 +62,13 @@ public struct BassGenerator {
         // motif cell, the bass borrows its rhythm (the root-motion version):
         // anchors near cell onsets survive, the rest thin out.
         var onsets = ensemble.anchors
-        if let cell = ensemble.motifCell, rng.chance(0.7) {
+        if ensemble.themeEchoVoice == .bass, let cell = ensemble.themeCell {
+            let cellSteps = cell.notes.map { Int($0.step.rounded()) }
+            let quoted = onsets.filter { anchor in
+                cellSteps.contains { abs($0 - anchor) <= 1 }
+            }
+            if !quoted.isEmpty { onsets = quoted }
+        } else if let cell = ensemble.motifCell, rng.chance(0.7) {
             let augment = rng.chance(0.35) // ×2: the cell at half speed
             let cellSteps = cell.notes.map { augment ? Int(($0.step * 2).rounded()) % stepsPerBar
                                                      : Int($0.step.rounded()) }

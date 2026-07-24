@@ -154,6 +154,17 @@ public struct MelodyGenerator {
                                 subSeed: UInt64, bankSeed: UInt64, feel: Feel,
                                 memory: MotifMemory, recurrence: Double, tension: Double,
                                 ensemble: EnsembleContext) -> [NoteEvent] {
+        generate(bar: bar, params: params, harmony: harmony, subSeed: subSeed,
+                 bankSeed: bankSeed, feel: feel, memory: memory,
+                 recurrence: recurrence, tension: tension, ensemble: ensemble,
+                 scheduledTheme: nil, persistentThemes: false)
+    }
+
+    static func generate(bar: Int, params: ParamSet, harmony: HarmonyContext,
+                         subSeed: UInt64, bankSeed: UInt64, feel: Feel,
+                         memory: MotifMemory, recurrence: Double, tension: Double,
+                         ensemble: EnsembleContext, scheduledTheme: ThemeBarPlan?,
+                         persistentThemes: Bool) -> [NoteEvent] {
         let lenScale = lengthScale(params["length"])
         let durationVariation = 0.35
         let density = params["density"]
@@ -233,13 +244,17 @@ public struct MelodyGenerator {
 
         // Band crossfade: is this a motif bar at all?
         let motifBar: Bool
-        var bandRNG = RNG(seed: hashSeed(subSeed, 0x424E_4400, UInt64(bar)))
-        if tension >= 0.55 {
-            motifBar = bandRNG.chance(0.42 + min(0.18, (tension - 0.55) * 0.4))
-        } else if tension >= 0.35 {
-            motifBar = bandRNG.chance(((tension - 0.35) / 0.2) * 0.42)
+        if scheduledTheme != nil {
+            motifBar = true
         } else {
-            motifBar = false
+            var bandRNG = RNG(seed: hashSeed(subSeed, 0x424E_4400, UInt64(bar)))
+            if tension >= 0.55 {
+                motifBar = bandRNG.chance(0.42 + min(0.18, (tension - 0.55) * 0.4))
+            } else if tension >= 0.35 {
+                motifBar = bandRNG.chance(((tension - 0.35) / 0.2) * 0.42)
+            } else {
+                motifBar = false
+            }
         }
         guard motifBar else {
             memory.log(bar: bar, cellID: nil, transform: nil)
@@ -282,8 +297,15 @@ public struct MelodyGenerator {
         var recalledID: Int? = nil
         var transform: MotifTransform? = nil
         let isOpening = harmony.barInPhrase == 0
-        let isReprisePair = harmony.phraseIndex >= 4 && harmony.phraseIndex % 4 < 2
-        if isReprisePair,
+        let isReprisePair = !persistentThemes
+            && harmony.phraseIndex >= 4 && harmony.phraseIndex % 4 < 2
+        if let theme = scheduledTheme {
+            cell = shapedThemeCell(theme.cell, density: density, contour: arcContour,
+                                   subSeed: subSeed, bar: bar,
+                                   preserveClosingGesture: theme.preservesClosingGesture)
+            recalledID = theme.cell.id
+            transform = theme.transform
+        } else if isReprisePair,
            let theme = memory.themeCell(forPhrase: harmony.phraseIndex - 4,
                                         barInPhrase: harmony.barInPhrase) {
             // A two-bar theme returns one phrase-pair later. Re-rooting in the
@@ -317,8 +339,10 @@ public struct MelodyGenerator {
         // Fresh bars log the new cell's id with no transform; recalls log the
         // source id plus how it was transformed; rests logged nil/nil above.
         memory.log(bar: bar, cellID: recalledID ?? cell.id, transform: transform)
-        memory.noteThemeCell(phraseIndex: harmony.phraseIndex,
-                             barInPhrase: harmony.barInPhrase, cell: cell)
+        if !persistentThemes {
+            memory.noteThemeCell(phraseIndex: harmony.phraseIndex,
+                                 barInPhrase: harmony.barInPhrase, cell: cell)
+        }
         if isOpening { memory.noteOpening(phraseIndex: harmony.phraseIndex, cellID: recalledID ?? cell.id) }
 
         // Realize in the current harmony: root the cell on a chord tone near
@@ -554,6 +578,38 @@ public struct MelodyGenerator {
             step += dur
         }
         return MotifCell(notes: notes, id: 0)
+    }
+
+    /// Live controls reshape a seed-stable blueprint without rewriting it.
+    /// Density exposes a deterministic subset (keeping the gesture's ends),
+    /// while contour adds a small directional delivery bias in degree space.
+    static func shapedThemeCell(_ source: MotifCell, density: Double, contour: Double,
+                                subSeed: UInt64, bar: Int,
+                                preserveClosingGesture: Bool = false) -> MotifCell {
+        let ordered = source.notes.sorted { $0.step < $1.step }
+        guard !ordered.isEmpty else { return source }
+        var kept: [MotifCell.N] = []
+        for (index, original) in ordered.enumerated() {
+            var note = original
+            let phase = note.step / Double(stepsPerBar)
+            if !preserveClosingGesture || index < ordered.count - 2 {
+                if contour < 0.34 {
+                    note.degree -= Int((phase * 2).rounded())
+                } else if contour > 0.66 {
+                    note.degree += Int((phase * 2).rounded())
+                } else {
+                    note.degree += Int((sin(phase * .pi) * 1.25).rounded())
+                }
+            }
+
+            let endpoint = index == 0 || index == ordered.count - 1
+            var gate = RNG(seed: hashSeed(subSeed, 0x5448_4741,
+                                          UInt64(max(0, bar)), UInt64(index)))
+            if endpoint || gate.chance(0.18 + density * 0.82) { kept.append(note) }
+        }
+        var shaped = source
+        shaped.notes = kept
+        return shaped
     }
 
 }

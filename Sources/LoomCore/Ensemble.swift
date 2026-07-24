@@ -44,12 +44,18 @@ public struct EnsembleContext: Sendable {
     /// The same set at the previous chord's start bar, so the tie logic can
     /// recompute exactly what the previous swell emitted.
     public let prevChordRinging: [Int]
+    /// Piece-wide theme rhythm for this bar (or the most recent scheduled
+    /// cell). The designated echo voice may only filter/accent rhythmic
+    /// material it already had; this never supplies new onset candidates.
+    public let themeCell: MotifCell?
+    public let themeEchoVoice: Voice?
 
     public init(anchors: [Int], gaps: [Range<Int>], focus: Voice, speaking: Bool,
                 prevMelodyGesture: Bool, motifCell: MotifCell?, chordVoicing: [Int],
                 droneRootPC: Int? = nil, droneNotes: [Int] = [],
                 ringingLoopNotes: [Int] = [],
-                prevChordRinging: [Int] = []) {
+                prevChordRinging: [Int] = [], themeCell: MotifCell? = nil,
+                themeEchoVoice: Voice? = nil) {
         self.anchors = anchors
         self.gaps = gaps
         self.focus = focus
@@ -61,6 +67,8 @@ public struct EnsembleContext: Sendable {
         self.droneNotes = droneNotes
         self.ringingLoopNotes = ringingLoopNotes
         self.prevChordRinging = prevChordRinging
+        self.themeCell = themeCell
+        self.themeEchoVoice = themeEchoVoice
     }
 
     /// The per-bar rhythmic sketch, recomputable for any bar.

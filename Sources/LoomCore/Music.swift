@@ -92,6 +92,10 @@ public struct HarmonyContext: Sendable {
     /// global phrase index (even = antecedent, odd = consequent).
     public let regionIndex: Int
     public let phraseIndex: Int
+    /// Absolute position inside the current antecedent/consequent pair.
+    /// Internal form machinery uses this to start a theme exactly at a pair
+    /// boundary even when the two phrases have different lengths.
+    let barInPhrasePair: Int
 
     /// The consonant-by-construction pitch pool: 5–7 pitch classes, priority
     /// ordered (tonic first), every one lawful against the drone and against
@@ -247,6 +251,7 @@ public struct HarmonyEngine {
         let nextPhrase: ProgressionPhrase
         let phraseIndex: Int
         let startBar: Int
+        let pairStartBar: Int
         /// The journey region this phrase sounds in.
         let region: JourneyRegion
         /// The region the *next* phrase will sound in (differs exactly when
@@ -309,6 +314,7 @@ public struct HarmonyEngine {
         var regionLen = regionLength(0)
         var start = 0
         var index = 0
+        var pairStart = 0
         var phrase = pickPhrase(&rng, family: region.scale.modeFamily,
                                 tension: tensionAt(0), previous: nil)
         func advanceRegion(to newStart: Int) {
@@ -319,6 +325,7 @@ public struct HarmonyEngine {
         while bar >= start + phrase.bars {
             start += phrase.bars
             index += 1
+            if index.isMultiple(of: 2) { pairStart = start }
             if start - region.startBar >= regionLen { advanceRegion(to: start) }
             phrase = pickPhrase(&rng, family: region.scale.modeFamily,
                                 tension: tensionAt(start), previous: phrase)
@@ -333,7 +340,8 @@ public struct HarmonyEngine {
         let next = pickPhrase(&nextRNG, family: peekRegion.scale.modeFamily,
                               tension: tensionAt(nextStart), previous: phrase)
         return PhrasePosition(phrase: phrase, nextPhrase: next, phraseIndex: index,
-                              startBar: start, region: region, nextPhraseRegion: peekRegion)
+                              startBar: start, pairStartBar: pairStart,
+                              region: region, nextPhraseRegion: peekRegion)
     }
 
     /// The journey region sounding at a bar (for the UI and checks).
@@ -547,6 +555,7 @@ public struct HarmonyEngine {
                               cadence: pos.phrase.cadence, phraseName: pos.phrase.name,
                               phraseChords: phraseChords, stepIndex: stepIdx,
                               regionIndex: pos.region.index, phraseIndex: pos.phraseIndex,
+                              barInPhrasePair: bar - pos.pairStartBar,
                               pool: pool, poolMask: poolMask)
     }
 

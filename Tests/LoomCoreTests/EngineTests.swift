@@ -3,6 +3,43 @@ import XCTest
 
 final class EngineTests: XCTestCase {
 
+    func streamDigest(_ engine: Engine, bars: Int, controls: Bool = false) -> UInt64 {
+        var hash: UInt64 = 0xcbf29ce484222325
+        func mix(_ value: UInt64) {
+            var v = value
+            for _ in 0..<8 {
+                hash ^= v & 0xff
+                hash &*= 0x100000001b3
+                v >>= 8
+            }
+        }
+        for bar in 0..<bars {
+            let output = engine.generateBar(bar)
+            mix(UInt64(bar)); mix(UInt64(output.events.count))
+            for event in output.events {
+                mix(UInt64(Voice.allCases.firstIndex(of: event.voice)!))
+                mix(UInt64(event.note)); mix(UInt64(event.velocity))
+                mix(event.startStep.bitPattern); mix(event.durationSteps.bitPattern)
+                mix(event.timingOffset.bitPattern); mix(event.glide ? 1 : 0)
+            }
+            guard controls else { continue }
+            mix(UInt64(output.controls.count))
+            for event in output.controls {
+                mix(UInt64(Voice.allCases.firstIndex(of: event.voice)!))
+                mix(UInt64(event.controller)); mix(UInt64(event.value))
+                mix(event.startStep.bitPattern)
+            }
+        }
+        return hash
+    }
+
+    func testLegacy128BarGoldenDigests() {
+        XCTAssertEqual(streamDigest(Engine(seed: 12345, compositionVersion: .legacy), bars: 128),
+                       0x3922_e2cb_411e_6142)
+        XCTAssertEqual(streamDigest(Engine(seed: 0xC0A1, compositionVersion: .legacy), bars: 128),
+                       0x7f00_616f_43dd_d2f4)
+    }
+
     func events(seed: UInt64, bars: Int) -> [[NoteEvent]] {
         let e = Engine(seed: seed)
         e.rewind()
@@ -1173,6 +1210,188 @@ final class EngineTests: XCTestCase {
         m.fade()
         XCTAssertEqual(m.cells.count, 3)
         XCTAssertEqual(m.cells.last!.id, newestID, "the freshest cell survives the fade")
+    }
+
+    // MARK: - v4: persistent compositional identity
+
+    func testCompositionVersionDefaultsAndReseeding() {
+        let current = Engine(seed: 1)
+        XCTAssertEqual(current.compositionVersion, .persistentThemes)
+        XCTAssertNotNil(current.themeBlueprint)
+
+        let legacy = Engine(seed: 1, compositionVersion: .legacy)
+        XCTAssertEqual(legacy.compositionVersion, .legacy)
+        XCTAssertNil(legacy.themeBlueprint)
+        legacy.mutate()
+        XCTAssertEqual(legacy.compositionVersion, .legacy,
+                       "mutation must preserve the active composition model")
+        legacy.reseed(2)
+        XCTAssertEqual(legacy.compositionVersion, .persistentThemes,
+                       "choosing a new seed starts the current model")
+        legacy.reseed(3, compositionVersion: .legacy)
+        XCTAssertEqual(legacy.compositionVersion, .legacy)
+    }
+
+    func testPersistentThemeIdentityAndBlueprintLaw() {
+        var lengths: Set<Int> = []
+        var intervals: Set<ThemeIntervalProfile> = []
+        var rhythms: Set<ThemeRhythmProfile> = []
+        var echoes: Set<ThemeEchoRole> = []
+
+        for seed in UInt64(0)..<96 {
+            let engine = Engine(seed: seed)
+            guard let identity = engine.pieceIdentity,
+                  let blueprint = engine.themeBlueprint else {
+                return XCTFail("persistent engine missing its identity")
+            }
+            lengths.insert(identity.themeBars)
+            intervals.insert(identity.intervalProfile)
+            rhythms.insert(identity.rhythmProfile)
+            echoes.insert(identity.echoRole)
+            XCTAssertEqual(blueprint.cells.count, identity.themeBars)
+
+            for index in 1..<blueprint.cells.count {
+                XCTAssertEqual(blueprint.cells[index].notes.first?.degree,
+                               blueprint.cells[index - 1].notes.last?.degree,
+                               "seed \(seed): theme restarted at bar \(index)")
+            }
+            let climax = blueprint.cells.enumerated().flatMap { bar, cell in
+                cell.notes.map { (bar, $0.degree) }
+            }.filter { $0.1 == 6 }
+            XCTAssertEqual(climax.count, 1, "seed \(seed): theme needs one climax")
+            if let peakBar = climax.first?.0 {
+                XCTAssertGreaterThan(peakBar, 0)
+                XCTAssertLessThan(peakBar, identity.themeBars - 1)
+            }
+            XCTAssertEqual(blueprint.cells.last?.notes.suffix(2).map(\.degree), [1, 0],
+                           "seed \(seed): closing gesture changed")
+            XCTAssertTrue(blueprint.cells.flatMap(\.notes).allSatisfy {
+                $0.step >= 0 && $0.step < Double(stepsPerBar) && $0.dur > 0
+            })
+        }
+        XCTAssertEqual(lengths, [4, 8])
+        XCTAssertEqual(intervals, Set(ThemeIntervalProfile.allCases))
+        XCTAssertEqual(rhythms, Set(ThemeRhythmProfile.allCases))
+        XCTAssertEqual(echoes, Set(ThemeEchoRole.allCases))
+    }
+
+    func testPersistentThemeDeterminismRewindAndMutation() {
+        func configured() -> Engine {
+            let engine = Engine(seed: 0x741E)
+            engine.evolution.sectionLength = 0
+            engine.evolution.wander = 0.83
+            engine.evolution.grit = 0.61
+            engine.params[.melody]?["density"] = 0.77
+            engine.params[.melody]?["rest"] = 0.21
+            return engine
+        }
+        let a = configured()
+        let b = configured()
+        let first = streamDigest(a, bars: 96, controls: true)
+        XCTAssertEqual(first, streamDigest(b, bars: 96, controls: true))
+        a.rewind()
+        XCTAssertEqual(first, streamDigest(a, bars: 96, controls: true),
+                       "rewind must replay notes and controller lanes exactly")
+
+        let before = a.themeBlueprint?.cells.map { $0.notes.map(\.degree) }
+        a.mutate()
+        XCTAssertEqual(a.compositionVersion, .persistentThemes)
+        XCTAssertEqual(a.themeBlueprint?.cells.map { $0.notes.map(\.degree) }, before,
+                       "mutation should develop a piece without replacing its blueprint")
+
+        let locked = configured()
+        locked.evolution.locked[.melody] = true
+        let melodySeed = locked.subSeeds[.melody]
+        locked.mutate()
+        XCTAssertEqual(locked.subSeeds[.melody], melodySeed,
+                       "melody locking must retain its theme-realization stream")
+    }
+
+    func testThemeFormReprisesAfterJourneyChanges() {
+        let engine = fastArcEngine(seed: 0xA11CE)
+        engine.evolution.push = 1
+        engine.params[.melody]?["density"] = 1
+        engine.params[.melody]?["rest"] = 0
+        guard let blueprint = engine.themeBlueprint else { return XCTFail("missing theme") }
+
+        var sawRoles: Set<PhrasePairRole> = []
+        var repriseAcrossJourney = false
+        for bar in 0..<512 {
+            let h = harmony(of: engine, bar: bar)
+            let plan = blueprint.plan(for: h)
+            if let plan { sawRoles.insert(plan.role) }
+            let output = engine.generateBar(bar)
+            guard h.regionIndex > 0, let plan, plan.role == .reprise,
+                  let entry = engine.motifMemory.recallLog.last,
+                  entry.bar == bar, entry.transform == .transpose else { continue }
+            XCTAssertEqual(entry.cellID, 100_000 + plan.sourceIndex)
+            let realized = output.events.filter { $0.voice == .melody && !$0.glide }
+            XCTAssertTrue(realized.allSatisfy {
+                h.latticeMask[(($0.note % 12) + 12) % 12]
+            }, "re-rooted reprise escaped the current harmony")
+            repriseAcrossJourney = true
+            break
+        }
+        XCTAssertEqual(sawRoles, [.statement, .development, .departure, .reprise])
+        XCTAssertTrue(repriseAcrossJourney,
+                      "no stable-ID reprise survived into a later journey region")
+    }
+
+    func testThemeControlsAndCandidateOnlyEchoes() {
+        let engine = Engine(seed: 0xEC40)
+        guard let blueprint = engine.themeBlueprint,
+              let source = blueprint.cells.first,
+              let closing = blueprint.cells.last else {
+            return XCTFail("missing theme")
+        }
+        let thin = MelodyGenerator.shapedThemeCell(source, density: 0, contour: 0.5,
+                                                   subSeed: 9, bar: 0)
+        let full = MelodyGenerator.shapedThemeCell(source, density: 1, contour: 0.5,
+                                                   subSeed: 9, bar: 0)
+        let falling = MelodyGenerator.shapedThemeCell(source, density: 1, contour: 0,
+                                                      subSeed: 9, bar: 0)
+        let rising = MelodyGenerator.shapedThemeCell(source, density: 1, contour: 1,
+                                                     subSeed: 9, bar: 0)
+        XCTAssertLessThanOrEqual(thin.notes.count, full.notes.count)
+        XCTAssertNotEqual(falling.notes.map(\.degree), rising.notes.map(\.degree))
+        let shapedClose = MelodyGenerator.shapedThemeCell(
+            closing, density: 1, contour: 1, subSeed: 9,
+            bar: blueprint.cells.count - 1, preserveClosingGesture: true)
+        XCTAssertEqual(shapedClose.notes.suffix(2).map(\.degree), [1, 0])
+
+        let h = harmony(of: engine, bar: 0)
+        let quoted = MotifCell(notes: [
+            .init(step: 4, degree: 0, dur: 1, vel: 0.5),
+            .init(step: 12, degree: 1, dur: 1, vel: 0.5),
+        ], id: 88)
+        func context(echo: Voice) -> EnsembleContext {
+            EnsembleContext(anchors: [0, 4, 8, 12], gaps: [1..<4, 5..<8, 9..<12],
+                            focus: echo, speaking: true, prevMelodyGesture: false,
+                            motifCell: nil, chordVoicing: [48, 55, 60],
+                            themeCell: quoted, themeEchoVoice: echo)
+        }
+        var bassParams = Defaults.params(for: .bass)
+        bassParams["density"] = 1
+        let bass = BassGenerator.generate(bar: 0, params: bassParams, harmony: h,
+                                          subSeed: 0xB455, feel: Feel(seed: 1, voice: .bass),
+                                          tension: 0.8, isFocus: true,
+                                          ensemble: context(echo: .bass))
+        XCTAssertFalse(bass.isEmpty)
+        XCTAssertTrue(bass.allSatisfy { [0.0, 4.0, 12.0].contains($0.startStep) },
+                      "bass echo invented an onset outside its anchors")
+
+        var pulseParams = Defaults.params(for: .pulse)
+        pulseParams["density"] = 1
+        pulseParams["division"] = 0.5
+        pulseParams["ratchet"] = 0
+        let pulse = PulseGenerator.generate(bar: 0, params: pulseParams, harmony: h,
+                                            subSeed: 0x5055, feel: Feel(seed: 1, voice: .pulse),
+                                            tension: 0.8, ensemble: context(echo: .pulse),
+                                            event: nil, friction: 0)
+        XCTAssertFalse(pulse.isEmpty)
+        XCTAssertTrue(pulse.allSatisfy {
+            $0.startStep.rounded() == $0.startStep && Int($0.startStep).isMultiple(of: 2)
+        }, "pulse echo invented an onset outside its existing grid")
     }
 
     // MARK: - v2.1: consonance
