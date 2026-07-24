@@ -84,6 +84,24 @@
   .btn-ghost:hover{border-color:var(--mid);background:var(--panel)}
   .req{font-size:11px;color:var(--dim);margin-top:16px}
 
+  /* ---- what's-new pill ---- */
+  .whatsnew{
+    display:inline-flex;align-items:center;gap:10px;margin-bottom:22px;max-width:100%;
+    padding:5px 13px 5px 5px;border-radius:999px;
+    background:var(--panel);border:1px solid var(--hairline);
+    font-size:11.5px;color:var(--mid);transition:.18s;
+  }
+  .whatsnew:hover{border-color:var(--ember);color:var(--ink)}
+  .wn-tag{
+    font-weight:700;font-size:10px;letter-spacing:.1em;text-transform:uppercase;
+    color:#0d0d0f;background:var(--ember);padding:3px 10px;border-radius:999px;white-space:nowrap;
+  }
+  .whatsnew:hover .wn-tag{background:var(--ember-bright)}
+  .wn-text{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .wn-arrow{color:var(--ember-bright);transition:transform .18s}
+  .whatsnew:hover .wn-arrow{transform:translateX(3px)}
+  @media(max-width:560px){.whatsnew{border-radius:14px}.wn-text{white-space:normal}}
+
   /* ---- mandala ---- */
   .stage{display:flex;flex-direction:column;align-items:center;gap:14px}
   .mandala-wrap{position:relative;width:min(46vw,440px);aspect-ratio:1}
@@ -207,6 +225,11 @@
 <main>
   <section class="hero">
     <div class="hero-copy">
+      <a class="whatsnew" href="https://github.com/gravelc-code/loom/releases/latest">
+        <span class="wn-tag">new · 1.3</span>
+        <span class="wn-text">a seed now sounds like itself — persistent, developing themes</span>
+        <span class="wn-arrow">→</span>
+      </a>
       <span class="eyebrow">generative midi instrument · macos</span>
       <h1>loom<span class="cursor">_</span></h1>
       <p class="lede">One seed becomes a <b>complete, evolving arrangement</b> — drone, drums, bass, chords, pulse and melody — that develops over minutes and never quite repeats.</p>
